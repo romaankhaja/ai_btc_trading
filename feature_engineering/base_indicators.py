@@ -151,7 +151,7 @@ def compute_all_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # VWAP (Section 4.2.5)
     result["vwap"] = compute_vwap(df, rolling_window=100)
     result["vwap_distance"] = (df["close"] - result["vwap"]) / atr_14
-    result["normalized_vwap_distance"] = result["vwap_distance"] / result["vwap_distance"].rolling(50).std().replace(0, np.nan)
+    result["normalized_vwap_distance"] = (result["vwap_distance"] / result["vwap_distance"].rolling(50).std().replace(0, np.nan)).fillna(0)
     result["vwap_trend_alignment"] = (df["close"] > result["vwap"]).astype(int) - (df["close"] < result["vwap"]).astype(int)
 
     # Volume features
@@ -171,7 +171,7 @@ def compute_all_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     )
     result["upper_wick_size"] = (df["high"] - df[["open", "close"]].max(axis=1)) / atr_14
     result["lower_wick_size"] = (df[["open", "close"]].min(axis=1) - df["low"]) / atr_14
-    result["wick_imbalance_ratio"] = result["upper_wick_size"] / result["lower_wick_size"].replace(0, np.nan)
+    result["wick_imbalance_ratio"] = (result["upper_wick_size"] / result["lower_wick_size"].replace(0, np.nan)).fillna(0)
     
     # Engulfing Flags
     prev_body = (df["close"].shift(1) - df["open"].shift(1))
