@@ -12,6 +12,8 @@ import pandas as pd
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+from training.config import CRITICAL_FEATURES
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +24,7 @@ class DriftReport:
     psi_scores: Dict[str, float] = field(default_factory=dict)
     overall_drift: bool = False
     retrain_recommended: bool = False
+    retrain_triggers: List[str] = field(default_factory=list)
 
 
 def compute_psi(expected: np.ndarray, actual: np.ndarray, bins: int = 10) -> float:
@@ -119,10 +122,18 @@ class DriftDetector:
                 report.overall_drift = True
             elif psi > self.PSI_WARNING:
                 report.features_drifted.append(col)
-        
-        # Recommend retrain if >30% of features show significant drift
+
+        for critical in CRITICAL_FEATURES:
+            psi = report.psi_scores.get(critical)
+            if psi is not None and psi > 0.20:
+                report.retrain_recommended = True
+                report.retrain_triggers.append(f'{critical} PSI={psi:.4f}')
+                logger.warning(f"Critical drift trigger: {critical} PSI={psi:.4f}")
+
+        # Recommend retrain if >20% of features show significant drift
         drift_ratio = len(report.features_drifted) / max(1, len(feature_cols))
-        if drift_ratio > 0.30:
+        if drift_ratio > 0.20:
             report.retrain_recommended = True
-        
+            report.retrain_triggers.append(f'drift_ratio={drift_ratio:.2%}')
+
         return report

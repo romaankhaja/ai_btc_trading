@@ -10,18 +10,22 @@ All feature lists map to actual column names in our labeled dataset.
 # ============================================================
 
 MOMENTUM_FEATURES = [
-    'ema_20_slope', 'ema_20_slope_5m',
+    'ema_20_slope', 'ema_20_slope_5m', 'ema_20_slope_1h',
     'rsi_velocity', 'rsi_velocity_5m',
     'volume_delta', 'atr_expansion_ratio',
-    'vwap_distance', 'regime_cluster'
+    'vwap_distance', 'trade_imbalance',
+    'trend_alignment_score', 'regime_state'
 ]
 
-# Meta-Model features: MOMENTUM_FEATURES + orthogonal volatility/liquidity signals
-# This gives the Meta-Model additional information to assess trade QUALITY
-# beyond the directional signal the Primary Model already uses.
+# Meta-model features: primary signal plus orthogonal volatility, liquidity,
+# and strategy-health context. Derivatives inputs are intentionally excluded
+# until live ingestion is wired end-to-end.
 META_FEATURES = MOMENTUM_FEATURES + [
-    'atr_14', 'realized_volatility', 'volatility_percentile',
-    'volume_ratio', 'amihud_illiquidity', 'regime_confidence'
+    'atr_14', 'realized_volatility', 'atr_velocity',
+    'volatility_percentile', 'bb_width', 'bb_width_percentile',
+    'volume_ratio', 'amihud_illiquidity', 'liquidity_pressure_score',
+    'volume_spike_score', 'regime_confidence', 'strategy_health_score',
+    'strategy_avg_rr', 'recent_drawdown', 'emotional_risk_score'
 ]
 
 VOLATILITY_FEATURES = [
@@ -31,7 +35,7 @@ VOLATILITY_FEATURES = [
 ]
 
 RISK_FEATURES = [
-    'regime_cluster', 'regime_confidence',
+    'regime_state', 'regime_confidence',
     'momentum_probability',       # injected from Model 1
     'predicted_volatility',       # injected from Model 2
     'atr_expansion_ratio', 'volatility_percentile',
@@ -106,6 +110,33 @@ THRESHOLDS = {
     'regime_silhouette_min': 0.30,
     'backtest_sharpe_min': 0.5,
 }
+
+# Live execution thresholds and regime routing rules.
+MIN_CONFIDENCE = 0.60
+MAX_HOLDING_BARS = 12
+REGIME_MAX_BARS = {
+    'trending_low_vol': MAX_HOLDING_BARS,
+    'trending_high_vol': MAX_HOLDING_BARS,
+    'sideways_low_vol': round(MAX_HOLDING_BARS * 0.7),
+    'crash_mode': round(MAX_HOLDING_BARS * 0.7),
+}
+REGIME_KELLY_MULTIPLIER = {
+    'trending_low_vol': 0.5,
+    'trending_high_vol': 0.8,
+    'sideways_low_vol': 0.3,
+    'crash_mode': 0.1,
+}
+NO_TRADE_REGIMES = ['crash_mode', 'sideways_low_vol']
+
+# Critical features that should trigger retraining quickly when they drift.
+CRITICAL_FEATURES = [
+    'regime_state',
+    'volatility_regime',
+    'funding_rate_zscore',
+    'OI_momentum_4h',
+    'atr_14',
+    'amihud_illiquidity',
+]
 
 # ============================================================
 # WALK-FORWARD CV

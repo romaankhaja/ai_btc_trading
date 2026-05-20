@@ -33,7 +33,9 @@ def evaluate_momentum(model, X, y):
     X, y = X[valid_mask], y[valid_mask]
     
     if hasattr(model, 'predict_proba'):
-        proba = model.predict_proba(X)[:, 1]
+        proba = model.predict_proba(X)
+        if getattr(proba, "ndim", 1) == 2:
+            proba = proba[:, 1]
     else:
         proba = model.predict(X)
     

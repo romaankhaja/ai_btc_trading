@@ -1,0 +1,63 @@
+{
+  "total_trades": 0,
+  "win_rate": 0.0,
+  "sharpe_ratio": 0.0,
+  "max_drawdown": 0.0,
+  "total_pnl": 0.0,
+  "avg_trade_pnl": 0.0,
+  "ece_by_model": {
+    "trending_low_vol": 0.01754475522925802,
+    "trending_high_vol": 0.0006192889661778256,
+    "sideways_low_vol": 9.52148468980063e-06,
+    "crash_mode": 0.00017517982336416583
+  },
+  "circuit_breaker_activations": 0,
+  "signal_distribution": {
+    "total_bars": 5238,
+    "long_signals": 251,
+    "short_signals": 321,
+    "no_trade": 4666,
+    "long_pct": 4.791905307369225,
+    "short_pct": 6.128293241695303,
+    "no_trade_pct": 89.07980145093546,
+    "by_regime": {
+      "trending_high_vol": {
+        "bars": 1647,
+        "long_signals": 0,
+        "short_signals": 0,
+        "no_trade": 1647,
+        "long_pct": 0.0,
+        "short_pct": 0.0,
+        "no_trade_pct": 100.0
+      },
+      "crash_mode": {
+        "bars": 791,
+        "long_signals": 0,
+        "short_signals": 0,
+        "no_trade": 791,
+        "long_pct": 0.0,
+        "short_pct": 0.0,
+        "no_trade_pct": 100.0
+      },
+      "trending_low_vol": {
+        "bars": 1564,
+        "long_signals": 0,
+        "short_signals": 0,
+        "no_trade": 1564,
+        "long_pct": 0.0,
+        "short_pct": 0.0,
+        "no_trade_pct": 100.0
+      },
+      "sideways_low_vol": {
+        "bars": 1236,
+        "long_signals": 251,
+        "short_signals": 321,
+        "no_trade": 664,
+        "long_pct": 20.307443365695793,
+        "short_pct": 25.970873786407765,
+        "no_trade_pct": 53.72168284789643
+      }
+    }
+  },
+  "regime_override_count": 86
+}

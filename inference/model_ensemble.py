@@ -2,22 +2,22 @@
 Model Ensemble — Hierarchical Meta-Ensemble Loader.
 
 Loads the new architecture:
-1. HMM Regime Model (Rolling-Window Viterbi)
-2. Primary Direction Model
-3. Secondary Meta Model (Confidence)
-4. Volatility Model
-5. Risk Model
-6. Behavioral Model
+1. Non-Homogeneous HMM Regime Model
+2. Four specialised Meta-Ensemble Models (routed by HMM regime)
+3. Volatility Model
+4. Risk Model
+5. Behavioral Model
 """
 
 import logging
 import numpy as np
+import pandas as pd
 import joblib
 from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 
-from training.train_hmm_regime import prepare_hmm_features, HMM_FEATURES
+from regime.nhhmm import NHHMMRegimeDetector
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ class ModelOutputs:
     predicted_direction: int = 0
     meta_probability: float = 0.0
     meta_margin: float = 0.0
+    kelly_fraction: float = 0.5
     predicted_volatility: float = 0.0
     risk_level: str = 'NO_TRADE'
     behavioral_anomaly: bool = False
@@ -40,17 +41,14 @@ class ModelOutputs:
 class ModelEnsemble:
     def __init__(self, models_dir: str):
         self.models_dir = Path(models_dir)
-        self.regime_scaler = None
-        self.regime_hmm = None
-        self.regime_mapping = None
-        self.primary_model = None
-        self.meta_model = None
+        self.regime_detector = None
+        self.regime_models = {}
         self.volatility_model = None
         self.risk_model = None
         self.behavioral_model = None
         self._loaded = False
         
-        # Rolling buffer for HMM temporal context (Bug 1 fix)
+        # Rolling buffer for HMM temporal context
         self._hmm_buffer = deque(maxlen=HMM_WINDOW_SIZE)
         
     def load(self):
@@ -58,15 +56,22 @@ class ModelEnsemble:
         
         # 1. HMM Regime
         reg_dir = self.models_dir / 'regime'
-        if (reg_dir / 'regime_hmm_scaler.pkl').exists():
-            self.regime_scaler = joblib.load(reg_dir / 'regime_hmm_scaler.pkl')
-            self.regime_hmm = joblib.load(reg_dir / 'regime_hmm_model.pkl')
-            self.regime_mapping = joblib.load(reg_dir / 'regime_hmm_mapping.pkl')
+        self.regime_detector = NHHMMRegimeDetector.load(reg_dir)
         
-        # 2. Meta-Ensemble
+        # 2. Four Specialized Meta-Ensembles
+        regimes = ["trending_low_vol", "trending_high_vol", "sideways_low_vol", "crash_mode"]
         mom_dir = self.models_dir / 'momentum'
-        self.primary_model = joblib.load(mom_dir / 'primary_direction_model.pkl')
-        self.meta_model = joblib.load(mom_dir / 'meta_confidence_model.pkl')
+        
+        for r in regimes:
+            path = mom_dir / r
+            if (path / 'primary_model.pkl').exists():
+                self.regime_models[r] = {
+                    'primary': joblib.load(path / 'primary_model.pkl'),
+                    'meta': joblib.load(path / 'calibrated_meta_model.pkl')
+                }
+                logger.info(f"  Loaded specialized meta-ensemble for regime: {r}")
+            else:
+                logger.warning(f"  No saved meta-ensemble model found for regime: {r}")
         
         # 3. Volatility
         vol_dir = self.models_dir / 'volatility'
@@ -81,7 +86,7 @@ class ModelEnsemble:
         self.behavioral_model = joblib.load(beh_dir / 'behavioral_iforest.pkl')
         
         self._loaded = True
-        logger.info("All HMM Meta-Ensemble models loaded.")
+        logger.info("All specialized HMM models loaded successfully.")
         
     def predict(self, features: dict) -> ModelOutputs:
         if not self._loaded:
@@ -89,50 +94,62 @@ class ModelEnsemble:
             
         out = ModelOutputs()
         
-        # 1. Regime (HMM with Rolling-Window Viterbi)
-        # The Viterbi algorithm requires a SEQUENCE of observations to compute
-        # state transitions. Single-point inference defaults to the highest
-        # stationary-probability state. We maintain a rolling buffer of the last
-        # N observations and pass the full sequence each time.
+        # 1. Regime (HMM with custom Viterbi decoding)
         try:
-            log_ret = features.get('log_return', 0.0)
-            vol = features.get('realized_volatility', features.get('atr_14', 0.0))
+            # Append features dict to buffer
+            self._hmm_buffer.append(features.copy())
             
-            # Append current observation to rolling buffer
-            self._hmm_buffer.append([log_ret, vol])
+            # Construct sequence DataFrame
+            seq_df = pd.DataFrame(list(self._hmm_buffer))
             
-            # Pass the full sequence to HMM for proper Viterbi decoding
-            x_seq = np.array(list(self._hmm_buffer))
-            x_scaled = self.regime_scaler.transform(x_seq)
+            # Decode using NHHMM
+            seq_df_labeled = self.regime_detector.assign_labels(seq_df)
+            last_row = seq_df_labeled.iloc[-1]
             
-            # Predict state sequence — take the LAST element as current regime
-            state_sequence = self.regime_hmm.predict(x_scaled)
-            current_state = state_sequence[-1]
-            out.regime_label = self.regime_mapping.get(current_state, 'unknown')
+            out.regime_label = last_row['regime_label']
+            out.regime_confidence = float(last_row['regime_confidence'])
             
-            # Confidence from the last observation's posterior
-            probs = self.regime_hmm.predict_proba(x_scaled)
-            out.regime_confidence = float(np.max(probs[-1]))
+            # Inject state metrics into features dictionary
+            features['regime_state'] = int(last_row['regime_state'])
+            features['regime_label'] = last_row['regime_label']
+            features['regime_confidence'] = out.regime_confidence
         except Exception as e:
-            logger.warning(f"HMM inference error: {e}")
-            out.regime_label = 'unknown'
+            logger.warning(f"NHHMM regime prediction error: {e}. Defaulting to sideways_low_vol.")
+            out.regime_label = 'sideways_low_vol'
+            features['regime_state'] = 2
+            features['regime_label'] = 'sideways_low_vol'
+            features['regime_confidence'] = 0.5
             
-        # Add regime to features for downstream
-        features['regime_cluster'] = list(self.regime_mapping.keys())[list(self.regime_mapping.values()).index(out.regime_label)] if out.regime_label in self.regime_mapping.values() else 0
-        features['regime_confidence'] = out.regime_confidence
+        # Import feature list constants
+        from training.config import MOMENTUM_FEATURES, META_FEATURES, VOLATILITY_FEATURES, RISK_FEATURES, BEHAVIORAL_FEATURES
         
-        # 2. Primary Direction
-        from training.config import MOMENTUM_FEATURES, META_FEATURES, VOLATILITY_FEATURES, RISK_FEATURES, BEHAVIORAL_FEATURES, RISK_CLASSES
-        
-        x_mom = np.array([[features.get(f, 0.0) for f in MOMENTUM_FEATURES]])
-        pred_dir = self.primary_model.predict(x_mom)[0]
-        out.predicted_direction = 1 if pred_dir == 1 else -1
-        
-        # 3. Meta Confidence (uses expanded META_FEATURES for orthogonal info)
-        x_meta = np.array([[features.get(f, 0.0) for f in META_FEATURES]])
-        out.meta_probability = self.meta_model.predict_proba(x_meta)[0, 1]
-        out.meta_margin = self.meta_model.predict(x_meta, output_margin=True)[0]
-        
+        # 2 & 3. Route to corresponding specialized Meta-Ensemble
+        if out.regime_label in self.regime_models:
+            models = self.regime_models[out.regime_label]
+            primary_model = models['primary']
+            meta_model = models['meta']
+            
+            # Primary Direction
+            x_mom = np.array([[features.get(f, 0.0) for f in MOMENTUM_FEATURES]])
+            pred_dir = primary_model.predict(x_mom)[0]
+            out.predicted_direction = 1 if pred_dir == 1 else -1
+            
+            # Meta-Model (Calibrated)
+            x_meta = np.array([[features.get(f, 0.0) for f in META_FEATURES]])
+            meta_proba = meta_model.predict_proba(x_meta)
+            if getattr(meta_proba, "ndim", 1) == 2:
+                out.meta_probability = float(meta_proba[0, 1])
+            else:
+                out.meta_probability = float(meta_proba[0] if np.ndim(meta_proba) else meta_proba)
+            out.meta_margin = meta_model.predict(x_meta, output_margin=True)[0]
+            out.kelly_fraction = float(getattr(meta_model, 'kelly_fraction', 0.5))
+        else:
+            # Flat/no trades for unhandled or highly choppy/crash regimes
+            out.predicted_direction = 0
+            out.meta_probability = 0.0
+            out.meta_margin = -999.0
+            out.kelly_fraction = 0.5
+            
         features['momentum_probability'] = out.meta_probability
         
         # 4. Volatility
@@ -146,7 +163,8 @@ class ModelEnsemble:
         
         # 6. Behavioral
         x_beh = np.array([[features.get(f, 0.0) for f in BEHAVIORAL_FEATURES]])
-        anomaly = self.behavioral_model.predict(x_beh)[0]
+        beh_df = pd.DataFrame(x_beh, columns=BEHAVIORAL_FEATURES)
+        anomaly = self.behavioral_model.predict(beh_df)[0]
         out.behavioral_anomaly = (anomaly == -1)
         
         return out

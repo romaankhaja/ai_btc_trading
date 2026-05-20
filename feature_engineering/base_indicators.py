@@ -125,6 +125,7 @@ def compute_all_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     pct_returns = df["close"].pct_change()
     result["realized_volatility"] = pct_returns.rolling(20).std() * np.sqrt(35040)
     result["volatility_regime_score"] = result["atr_expansion_ratio"] + result["volatility_percentile"]
+    result["volatility_regime"] = result["volatility_regime_score"]
 
     # RSI (Section 4.2.3)
     rsi = compute_rsi(df["close"], 14)

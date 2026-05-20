@@ -192,7 +192,7 @@ def step_summary(train_df, val_df, test_df):
 
     print(f"\n  Total columns: {len(train_df.columns)}")
     print(f"  Label columns: label_momentum, label_volatility, label_risk, label_behavioral")
-    print(f"  Regime columns: regime_cluster, regime_label, regime_confidence")
+    print(f"  Regime columns: regime_state, regime_label, regime_confidence")
 
     # Momentum distribution
     for name, df in [("Train", train_df), ("Val", val_df), ("Test", test_df)]:

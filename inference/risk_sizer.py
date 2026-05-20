@@ -32,11 +32,16 @@ def compute_kelly_sizing(
     sl_multiplier: float = 1.5,
     tp_multiplier: float = 1.5,
     regime_risk_modifier: float = 1.0,
-    max_risk_percent: float = 2.0,
-    kelly_fraction: float = 0.5  # Half-Kelly is standard for safety
+    regime_kelly_multiplier: float = 1.0,
+    max_risk_percent: float = 2.5,      # Absolute cap on position risk at 2.5% of equity
+    kelly_fraction: float = 0.5,       # Half-Kelly for safety
+    consecutive_losses: int = 0,
+    recent_drawdown: float = 0.0
 ) -> SizingResult:
     """
-    Computes position size using Fractional Kelly Criterion.
+    Computes position size using Binomial Kelly Criterion:
+      f* = (p * (b + 1) - 1) / b
+    where p = Platt-calibrated probability, b = TP_multiplier / SL_multiplier.
     """
     # 1. Distances based on ATR
     sl_dist = atr_14 * sl_multiplier
@@ -50,41 +55,46 @@ def compute_kelly_sizing(
         sl_price = entry_price + sl_dist
         tp_price = entry_price - tp_dist
         
-    # 2. Kelly Calculation
-    # Odds = Reward / Risk
+    # 2. Reward-Risk Ratio (b)
     if sl_dist <= 0:
         b = 1.0
     else:
         b = tp_dist / sl_dist
         
     p = meta_probability
-    q = 1.0 - p
     
-    # Kelly Formula: f* = p - (q / b)
+    # Kelly Formula: f* = (p * (b + 1) - 1) / b
     if b > 0:
-        f_star = p - (q / b)
+        f_star = (p * (b + 1) - 1) / b
     else:
         f_star = 0.0
         
     # Cap negative edge to 0
     f_star = max(0.0, f_star)
     
-    # 3. Apply Volatility Targeting
-    # High predicted volatility should reduce the raw Kelly fraction
-    # Assume a baseline vol of ~0.01 (1%) for BTC 15m.
+    # 3. Volatility Targeting Scalar
+    # High predicted volatility reduces the raw Kelly fraction
     vol_target_scalar = 0.01 / max(predicted_volatility, 0.001)
     
-    # 4. Final Risk Percent
-    # Raw Kelly f* is typically huge (e.g. 5-15%). 
-    # We apply Half-Kelly (or smaller), vol scaling, and regime modifier.
+    # 4. Tail Protection Gating & Drawdown Modifiers (Fix 7 / Correction 3)
+    safety_multiplier = 1.0
+    if consecutive_losses >= 3:
+        safety_multiplier *= 0.5
+        logger.info(f"  [Tail Protection] Consecutive losses ({consecutive_losses}) >= 3. Risk scaled down by 50%.")
+
     raw_risk_pct = f_star * kelly_fraction * vol_target_scalar * regime_risk_modifier * 100.0
-    
-    # Hard cap risk
+    raw_risk_pct *= safety_multiplier
+    raw_risk_pct *= regime_kelly_multiplier
+
+    if recent_drawdown > 0.03:
+        raw_risk_pct *= 0.5
+        logger.info(f"  [Tail Protection] Drawdown ({recent_drawdown:.1%}) > 3%. Risk scaled down by 50%.")
+        
+    # 5. Final Risk Percent
+    # Hard cap risk at max_risk_percent (absolute limit 2.5%)
     risk_percent = min(raw_risk_pct, max_risk_percent)
     
-    # 5. Position Size USD
-    # Risk Amount = Equity * (Risk_Percent / 100)
-    # Position Size = Risk Amount / (SL_Distance / Entry_Price)
+    # 6. Position Size USD
     risk_amount = equity * (risk_percent / 100.0)
     sl_pct = sl_dist / entry_price if entry_price > 0 else 0.01
     

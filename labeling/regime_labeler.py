@@ -2,7 +2,7 @@
 Regime Labeler — Unsupervised KMeans Clustering on normalized features.
 
 Fits KMeans ONLY on training data to prevent leakage.
-Assigns regime_cluster and regime_label to all splits.
+Assigns regime_state and regime_label to all splits.
 Saves scaler + kmeans model to models/regime/.
 """
 
@@ -126,15 +126,15 @@ def fit_regime_model(train_df, n_clusters=5, random_state=42):
 
 def assign_regime_labels(df, scaler, km, mapping):
     """
-    Assign regime_cluster and regime_label to a DataFrame.
+    Assign regime_state and regime_label to a DataFrame.
     Uses scaler.transform() (NOT fit_transform) to prevent leakage.
     """
     X = df[REGIME_FEATURES].values
     X_scaled = scaler.transform(X)
     
     df = df.copy()
-    df['regime_cluster'] = km.predict(X_scaled)
-    df['regime_label'] = df['regime_cluster'].map(mapping)
+    df['regime_state'] = km.predict(X_scaled)
+    df['regime_label'] = df['regime_state'].map(mapping)
     
     # Regime confidence = inverse of distance to nearest centroid
     distances = km.transform(X_scaled).min(axis=1)
