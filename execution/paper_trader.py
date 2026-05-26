@@ -107,7 +107,7 @@ class PaperTrader:
         bars_held = 0
         consecutive_sl_count = 0
         sl_cooldown_remaining_bars = 0
-        drawdown_block_active = False
+        drawdown_cooldown_bars = 0
         circuit_breaker_events = []
         last_circuit_state = 'normal'
         last_drawdown_state = 'normal'
@@ -310,9 +310,10 @@ class PaperTrader:
             
             # ---- Make new decision if no open trade ----
             if open_trade is None:
-                if drawdown_block_active:
+                if drawdown_cooldown_bars > 0:
                     all_returns.append(0.0)
                     block_counter['DRAWDOWN_BLOCK'] = block_counter.get('DRAWDOWN_BLOCK', 0) + 1
+                    drawdown_cooldown_bars -= 1
                 else:
                     decision = self.engine.decide(features, equity)
 
@@ -351,7 +352,7 @@ class PaperTrader:
 
                         if allow_entry:
                             expected_rr = float(decision.reward_risk_ratio)
-                            if expected_rr < 1.5:
+                            if expected_rr < 1.499:
                                 allow_entry = False
                                 skip_reason = f'RR_GATE: expected_rr={expected_rr:.2f} < 1.50'
 
@@ -405,6 +406,8 @@ class PaperTrader:
                                 'action': decision.action,
                                 'regime': decision.regime,
                                 'confidence': decision.meta_probability,
+                                'meta_probability': decision.meta_probability,
+                                'zscore': 0.0,
                                 'expected_rr': float(decision.reward_risk_ratio),
                                 'atr_ratio': decision.atr_ratio,
                                 'reason': skip_reason or 'UNKNOWN',
@@ -419,8 +422,8 @@ class PaperTrader:
                                 block_counter[tag] = block_counter.get(tag, 0) + 1
 
             session_drawdown = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
-            if session_drawdown > 0.04 and not drawdown_block_active:
-                drawdown_block_active = True
+            if session_drawdown > 0.04 and drawdown_cooldown_bars == 0:
+                drawdown_cooldown_bars = 48
                 _log_circuit_event(
                     current_time,
                     'drawdown_block',
@@ -429,16 +432,8 @@ class PaperTrader:
                     sl_cooldown_remaining_bars,
                 )
                 result.circuit_breaker_activations += 1
-            elif drawdown_block_active and equity >= peak_equity * 0.98:
-                drawdown_block_active = False
-                _log_circuit_event(
-                    current_time,
-                    'drawdown_release',
-                    f'reason=DRAWDOWN_RELEASE, equity_recovered={equity:.2f}',
-                    consecutive_sl_count,
-                    sl_cooldown_remaining_bars,
-                )
-                result.circuit_breaker_activations += 1
+                # Reset peak equity to avoid immediate re-triggering once cooldown ends
+                peak_equity = equity
             
             # Track equity
             if equity > peak_equity:
@@ -509,7 +504,10 @@ class PaperTrader:
         ).to_csv(results_dir / 'circuit_breaker_log.csv', index=False)
         pd.DataFrame(
             skipped_trade_events,
-            columns=['timestamp', 'action', 'regime', 'confidence', 'expected_rr', 'atr_ratio', 'reason']
+            columns=[
+                'timestamp', 'action', 'regime', 'confidence', 'meta_probability',
+                'zscore', 'expected_rr', 'atr_ratio', 'reason'
+            ]
         ).to_csv(results_dir / 'skipped_trades_log.csv', index=False)
         pd.DataFrame(
             regime_override_events,

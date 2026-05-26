@@ -57,18 +57,22 @@ def _assert_label_health(df: pd.DataFrame, name: str) -> None:
             )
 
 
-def _compute_signal_distribution(val_df: pd.DataFrame, test_df: pd.DataFrame, models_dir: Path) -> dict:
+def _compute_signal_distribution(train_df: pd.DataFrame, test_df: pd.DataFrame, models_dir: Path) -> dict:
     """Run the model across the full test set and summarize raw action counts."""
     diagnostic_engine = TradeDecisionEngine(str(models_dir))
     diagnostic_engine.load()
 
-    atr_history = []
-    for _, row in val_df.iterrows():
-        features = {col: row[col] for col in val_df.columns}
-        atr_history.append(float(row.get('atr_14', 0.0)))
-        features['atr_20bar_mean'] = float(np.mean(atr_history[-20:])) if atr_history else 0.0
-        out = diagnostic_engine.ensemble.predict(features)
-        diagnostic_engine.margin_window.append(out.meta_margin)
+    if 'momentum_probability' in train_df.columns:
+        train_probs = pd.Series(train_df['momentum_probability']).dropna().astype(float).values
+    elif 'meta_label' in train_df.columns:
+        train_probs = pd.Series(train_df['meta_label']).dropna().astype(float).values
+    else:
+        train_probs = np.linspace(0.3, 0.7, 1000)
+
+    if len(train_probs) == 0:
+        train_probs = np.linspace(0.3, 0.7, 1000)
+
+    diagnostic_engine.fit_thresholds(train_probs)
 
     counts = {'LONG': 0, 'SHORT': 0, 'NO_TRADE': 0}
     by_regime = {}
@@ -167,21 +171,28 @@ def main():
     train_risk(train_df, val_df, test_df, models_dir / "risk")
     train_behavioral(train_df, val_df, test_df, models_dir / "behavioral")
     
-    # ---- 5. Paper Trading (Z-Score + Kelly) ----
-    print("\nSTEP 5: PAPER TRADING (Z-Score Ranking + Kelly Sizing)")
+    # ---- 5. Paper Trading (Adaptive Threshold + Kelly) ----
+    print("\nSTEP 5: PAPER TRADING (Adaptive Threshold + Kelly Sizing)")
     
     trader = PaperTrader(
         models_dir=str(models_dir),
         initial_equity=10000.0
     )
     
-    # Re-warm margin window with validation set to get valid Z-scores at test start
-    print("  Warming up Z-Score window with validation set...")
     trader.load()
-    for _, row in val_df.iterrows():
-        features = {col: row[col] for col in val_df.columns}
-        out = trader.engine.ensemble.predict(features)
-        trader.engine.margin_window.append(out.meta_margin)
+
+    if 'momentum_probability' in train_df.columns:
+        train_probs = pd.Series(train_df['momentum_probability']).dropna().astype(float).values
+    elif 'meta_label' in train_df.columns:
+        train_probs = pd.Series(train_df['meta_label']).dropna().astype(float).values
+    else:
+        train_probs = np.linspace(0.3, 0.7, 1000)
+
+    if len(train_probs) == 0:
+        train_probs = np.linspace(0.3, 0.7, 1000)
+
+    trader.engine.fit_thresholds(train_probs)
+    print(f"  Fitted adaptive threshold engine on {len(train_probs)} samples")
         
     print("  Running simulation on test set...")
     result = trader.run(test_df)
@@ -248,7 +259,7 @@ def main():
     }
     total_pnl = float(sum(t.pnl for t in result.trades)) if result.trades else 0.0
     avg_trade_pnl = float(np.mean([t.pnl for t in result.trades])) if result.trades else 0.0
-    signal_distribution = _compute_signal_distribution(val_df, test_df, models_dir)
+    signal_distribution = _compute_signal_distribution(train_df, test_df, models_dir)
 
     performance_report = {
         'total_trades': int(result.total_trades),
@@ -261,6 +272,9 @@ def main():
         'circuit_breaker_activations': int(result.circuit_breaker_activations),
         'signal_distribution': signal_distribution,
         'regime_override_count': int(result.regime_override_count),
+        'skip_reason_breakdown': result.block_reasons_summary,
+        'total_signals_generated': int(signal_distribution.get('long_signals', 0) + signal_distribution.get('short_signals', 0)),
+        'signals_converted_to_trades': int(result.total_trades),
     }
 
     results_dir.mkdir(exist_ok=True)

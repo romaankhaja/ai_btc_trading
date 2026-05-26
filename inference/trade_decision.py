@@ -7,13 +7,16 @@ Z-score ranking based on the raw log-odds (margin) of the Meta-Model.
 
 import logging
 import numpy as np
-from collections import deque
 from dataclasses import dataclass, field
 from typing import List
 
 from inference.model_ensemble import ModelEnsemble, ModelOutputs
 from inference.policy_engine import PolicyEngine, PolicyDecision
 from inference.risk_sizer import compute_kelly_sizing, SizingResult
+from inference.threshold_engine import (
+    AdaptiveThresholdEngine,
+    fit_threshold_engine,
+)
 from training.config import REGIME_KELLY_MULTIPLIER
 
 logger = logging.getLogger(__name__)
@@ -26,8 +29,6 @@ class TradeDecision:
     
     # Confidence
     meta_probability: float = 0.0
-    meta_margin_zscore: float = 0.0
-    zscore_threshold: float = 0.25  # selective but not overly restrictive
     
     # Risk parameters
     risk_percent: float = 0.0
@@ -60,15 +61,25 @@ class TradeDecisionEngine:
     def __init__(self, models_dir: str):
         self.ensemble = ModelEnsemble(models_dir)
         self.policy = PolicyEngine()
+        self.threshold_engine = AdaptiveThresholdEngine()
+        self._threshold_fitted = False
         self._loaded = False
-        
-        # Rolling window for Z-score calculation (last 1000 bars)
-        self.margin_window = deque(maxlen=1000)
     
     def load(self):
         """Load all models."""
         self.ensemble.load()
         self._loaded = True
+
+    def fit_thresholds(self, train_momentum_probs):
+        """Fit the adaptive threshold engine on the training distribution."""
+        probs = np.asarray(train_momentum_probs, dtype=float)
+        probs = probs[~np.isnan(probs)]
+        if probs.size == 0:
+            raise ValueError("No valid momentum probabilities supplied for threshold fitting")
+
+        self.threshold_engine.fit(probs)
+        fit_threshold_engine(probs)
+        self._threshold_fitted = True
     
     def decide(self, features: dict, equity: float = 10000.0) -> TradeDecision:
         decision = TradeDecision()
@@ -91,24 +102,7 @@ class TradeDecisionEngine:
             decision.regime_override_applied = True
             decision.regime_override_reason = f'ATR ratio {atr_ratio:.2f} > 1.40 -> trending_high_vol'
 
-        # Update rolling margin window
-        self.margin_window.append(outputs.meta_margin)
-        
-        # 2. Compute Rolling Z-Score
-        if len(self.margin_window) > 100:
-            window_mean = np.mean(self.margin_window)
-            window_std = np.std(self.margin_window)
-            if window_std > 0:
-                decision.meta_margin_zscore = (outputs.meta_margin - window_mean) / window_std
-            else:
-                decision.meta_margin_zscore = 0.0
-        else:
-            # Not enough data for Z-score, block trade
-            decision.action = 'NO_TRADE'
-            decision.block_reasons.append('WARMUP: Insufficient history for Z-score')
-            return decision
-        
-        # 3. Policy Engine Gating
+        # 2. Policy Engine Gating
         policy = self.policy.evaluate(outputs, features)
         decision.policy_allowed = policy.allow_trade
         decision.block_reasons = policy.block_reasons
@@ -117,21 +111,38 @@ class TradeDecisionEngine:
         if not policy.allow_trade:
             decision.action = 'NO_TRADE'
             return decision
-            
-        # 4. Z-Score Execution Threshold
-        # We only trade if the signal is in the top tier of recent history
-        if decision.meta_margin_zscore < decision.zscore_threshold:
-            decision.action = 'NO_TRADE'
-            decision.block_reasons.append(
-                f'THRESHOLD: zscore={decision.meta_margin_zscore:.2f} < {decision.zscore_threshold:.2f}'
+
+        # 3. Adaptive probability threshold
+        if self._threshold_fitted:
+            threshold_state = self.threshold_engine.get_threshold(
+                regime_label=decision.regime,
+                volatility_percentile=features.get('volatility_percentile', 0.5),
+                recent_drawdown=features.get('recent_drawdown', 0.0),
+                strategy_health_score=features.get('strategy_health_score', 1.0),
+                regime_confidence=decision.regime_confidence,
             )
-            return decision
-        
-        # 5. Action Direction
+            effective_threshold = threshold_state.adjusted_threshold
+            if outputs.meta_probability < effective_threshold:
+                decision.action = 'NO_TRADE'
+                decision.block_reasons.append(
+                    f'ADAPTIVE_THRESHOLD: prob={outputs.meta_probability:.3f} '
+                    f'< threshold={effective_threshold:.3f} '
+                    f'(regime={decision.regime})'
+                )
+                return decision
+        else:
+            if outputs.meta_probability < 0.52:
+                decision.action = 'NO_TRADE'
+                decision.block_reasons.append(
+                    f'THRESHOLD_FALLBACK: prob={outputs.meta_probability:.3f} < 0.52'
+                )
+                return decision
+
+        # 4. Action Direction
         direction = outputs.predicted_direction
         decision.action = 'LONG' if direction == 1 else 'SHORT'
-        
-        # 6. Kelly Sizing
+
+        # 5. Kelly Sizing
         atr = features.get('atr_14', 0.0)
         entry_price = features.get('close', 0.0)
         pred_vol = outputs.predicted_volatility

@@ -189,20 +189,20 @@ class PolicyEngine:
 
         if regime == 'trending_low_vol':
             decision.regime_action = 'normal'
-            decision.sl_multiplier = 1.5
-            decision.tp_multiplier = 1.5
+            decision.sl_multiplier = 1.0
+            decision.tp_multiplier = 2.5
 
         elif regime == 'trending_high_vol':
             decision.regime_action = 'reduce'
-            decision.sl_multiplier = 2.0
-            decision.tp_multiplier = 2.0
+            decision.sl_multiplier = 1.5
+            decision.tp_multiplier = 3.5
             decision.risk_percent *= 0.7
             decision.warnings.append('REGIME: trending_high_vol - reduced sizing')
 
         elif regime == 'sideways_low_vol':
             decision.regime_action = 'reduce'
-            decision.sl_multiplier = 1.2
-            decision.tp_multiplier = 1.4
+            decision.sl_multiplier = 0.8
+            decision.tp_multiplier = 1.2
             decision.risk_percent *= 0.5
             decision.warnings.append('REGIME: sideways_low_vol - reduced sizing and tighter execution')
 

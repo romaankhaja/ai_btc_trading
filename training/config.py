@@ -112,7 +112,7 @@ THRESHOLDS = {
 }
 
 # Live execution thresholds and regime routing rules.
-MIN_CONFIDENCE = 0.60
+MIN_CONFIDENCE = 0.57
 MAX_HOLDING_BARS = 12
 REGIME_MAX_BARS = {
     'trending_low_vol': MAX_HOLDING_BARS,
@@ -126,7 +126,7 @@ REGIME_KELLY_MULTIPLIER = {
     'sideways_low_vol': 0.3,
     'crash_mode': 0.1,
 }
-NO_TRADE_REGIMES = ['crash_mode', 'sideways_low_vol']
+NO_TRADE_REGIMES = ['crash_mode']
 
 # Critical features that should trigger retraining quickly when they drift.
 CRITICAL_FEATURES = [
