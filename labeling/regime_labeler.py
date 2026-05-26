@@ -27,15 +27,6 @@ REGIME_FEATURES = [
     'bb_width_percentile'
 ]
 
-# Mapping of cluster centroids to human-readable regime names.
-# The clustering is intentionally collapsed to 3 regimes:
-# trending, sideways, and high_risk.
-REGIME_NAMES = [
-    'trending',
-    'sideways',
-    'high_risk'
-]
-
 DEFAULT_N_CLUSTERS = 3
 
 
@@ -44,9 +35,10 @@ def auto_map_clusters(km, scaler, feature_names):
     Automatically map cluster IDs to regime names based on centroid characteristics.
     
     Logic:
-    - High atr_expansion -> high_risk (combines crash_mode + choppy_high_vol)
-    - High ema_20_slope -> trending (combines trending_low_vol + trending_high_vol)
-    - Low abs(ema_20_slope) + low atr_expansion -> sideways
+    - Low abs(ema_20_slope) + low volatility -> ranging
+    - Positive ema_20_slope + high volatility -> trending_up
+    - Negative ema_20_slope + high volatility -> trending_down
+    - Catch-all -> mixed
     """
     # Get centroids in original feature space
     centroids_scaled = km.cluster_centers_
@@ -55,34 +47,18 @@ def auto_map_clusters(km, scaler, feature_names):
     centroid_df = pd.DataFrame(centroids, columns=feature_names)
     
     mapping = {}
-    used_names = set()
-    
-    # Sort clusters by volatility (atr_expansion_ratio) to assign high_risk first
-    vol_order = centroid_df['atr_expansion_ratio'].argsort()[::-1]
-    
-    for cluster_id in vol_order:
-        row = centroid_df.iloc[cluster_id]
-        atr_exp = row['atr_expansion_ratio']
-        vol_pct = row['volatility_percentile']
-        ema_slope = abs(row['ema_20_slope'])
-        
-        if 'high_risk' not in used_names and atr_exp > 1.3:
-            mapping[cluster_id] = 'high_risk'
-            used_names.add('high_risk')
-        elif 'trending' not in used_names and ema_slope > 0.2:
-            mapping[cluster_id] = 'trending'
-            used_names.add('trending')
-        elif 'sideways' not in used_names:
-            mapping[cluster_id] = 'sideways'
-            used_names.add('sideways')
+    for cluster_id, row in centroid_df.iterrows():
+        ema_slope = float(row['ema_20_slope'])
+        vol_pct = float(row['volatility_percentile'])
+
+        if abs(ema_slope) < 0.05 and vol_pct < 0.4:
+            mapping[cluster_id] = 'ranging'
+        elif ema_slope > 0.05 and vol_pct > 0.5:
+            mapping[cluster_id] = 'trending_up'
+        elif ema_slope < -0.05 and vol_pct > 0.5:
+            mapping[cluster_id] = 'trending_down'
         else:
-            # Fallback for any unmapped
-            remaining = set(REGIME_NAMES) - used_names
-            if remaining:
-                mapping[cluster_id] = remaining.pop()
-                used_names.add(mapping[cluster_id])
-            else:
-                mapping[cluster_id] = f'regime_{cluster_id}'
+            mapping[cluster_id] = 'mixed'
     
     return mapping, centroid_df
 

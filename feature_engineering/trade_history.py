@@ -32,10 +32,13 @@ class SyntheticTradeGenerator:
                 "strategy_recent_accuracy": 0.5,
                 "strategy_avg_rr": 1.0,
                 "last_5_trade_winrate": 0.5,
-                "consecutive_losses": 0,
-                "recent_drawdown": 0.0,
                 "strategy_health_score": 0.5,
-                "revenge_trade_score": 0.0
+                "revenge_trade_score": 0.0,
+                "oversized_trade_score": 0.0,
+                "overtrading_score": 0.0,
+                "discipline_score": 1.0,
+                "panic_exit_score": 0.0,
+                "fomo_score": 0.0,
             }
             
         recent_20 = closed_trades[-20:]
@@ -122,18 +125,13 @@ class SyntheticTradeGenerator:
             "strategy_recent_accuracy": winrate_20,
             "strategy_avg_rr": avg_rr,
             "last_5_trade_winrate": winrate_5,
-            "consecutive_losses": cons_losses,
-            "recent_drawdown": drawdown,
             "strategy_health_score": health,
             "revenge_trade_score": revenge_score,
             "oversized_trade_score": oversized,
             "overtrading_score": overtrading,
-            "emotional_risk_score": emotional_risk,
             "discipline_score": discipline,
             "panic_exit_score": panic,
-            "fomo_score": fomo,
-            "time_since_last_loss": time_since_loss,
-            "loss_recovery_aggression": loss_recovery
+            "fomo_score": fomo
         }
 
     def generate_features(self, df: pd.DataFrame) -> pd.DataFrame:

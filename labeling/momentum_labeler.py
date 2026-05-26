@@ -8,10 +8,10 @@ Binary classification target:
 Features:
 - Replaces all OHLCV close/high/low calculations with mark_price, mark_high, mark_low
 - Implements regime-conditional barrier multipliers:
-  - trending_low_vol : TP = 2.5x ATR, SL = 1.0x ATR
-  - trending_high_vol: TP = 3.5x ATR, SL = 1.5x ATR
-  - sideways_low_vol : TP = 1.2x ATR, SL = 0.8x ATR
-  - high_risk       : Use the generic fallback barriers so the regime remains trainable
+  - ranging          : quiet market, use conservative fallback barriers
+  - trending_up      : bullish continuation regime
+  - trending_down    : bearish continuation regime
+  - mixed            : catch-all fallback regime
 """
 
 import logging
@@ -20,14 +20,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-STATE_TO_LABEL = {
-    0: 'trending',
-    1: 'sideways',
-    2: 'high_risk',
-}
-
-
-def label_momentum(df, n_candles=8):
+def label_momentum(df, n_candles=16):
     """
     Generate momentum labels for the entire DataFrame.
     
@@ -43,7 +36,7 @@ def label_momentum(df, n_candles=8):
     
     Args:
         df: DataFrame with columns: mark_close/close, mark_high/high, mark_low/low, atr_14, ema_20_slope, regime_label
-        n_candles: Forward-looking horizon (default 8 = 2 hours on 15m)
+        n_candles: Forward-looking horizon (default 16 = 4 hours on 15m)
     
     Returns:
         List of labels (1/0/None)
@@ -57,12 +50,12 @@ def label_momentum(df, n_candles=8):
     lows = df[low_col].values
     atrs = df['atr_14'].values
     slopes = df['ema_20_slope'].values
-    if 'regime_state' in df.columns:
-        regimes = pd.Series(df['regime_state']).map(STATE_TO_LABEL).fillna('sideways').values
-    elif 'regime_label' in df.columns:
+    if 'regime_label' in df.columns:
         regimes = df['regime_label'].values
+    elif 'regime_state' in df.columns:
+        regimes = pd.Series(df['regime_state']).fillna('mixed').astype(str).values
     else:
-        regimes = np.full(len(df), 'sideways')
+        regimes = np.full(len(df), 'mixed')
     
     n = len(df)
     labels = np.full(n, np.nan)
@@ -71,12 +64,14 @@ def label_momentum(df, n_candles=8):
         regime = regimes[i]
         
         # Regime-conditional multipliers
-        if regime == 'trending':
-            atr_mult_tp, atr_mult_sl = 3.0, 1.2
-        elif regime == 'sideways':
-            atr_mult_tp, atr_mult_sl = 1.2, 0.8
+        if regime == 'trending_up':
+            atr_mult_tp, atr_mult_sl = 5.0, 2.4
+        elif regime == 'trending_down':
+            atr_mult_tp, atr_mult_sl = 5.0, 2.4
+        elif regime == 'ranging':
+            atr_mult_tp, atr_mult_sl = 2.0, 1.6
         else:
-            atr_mult_tp, atr_mult_sl = 1.5, 1.0
+            atr_mult_tp, atr_mult_sl = 2.5, 2.0
             
         entry = closes[i]
         atr = atrs[i]

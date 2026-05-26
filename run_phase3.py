@@ -137,13 +137,18 @@ def step_leakage(train_df, val_df, test_df):
     print("STEP 4: LEAKAGE VALIDATION")
     print("=" * 60)
 
-    # Define feature sets per model (roadmap minimum 15 features)
+    # Define feature sets per model using only causal market-derived inputs.
     MINIMUM_FEATURES = [
-        'ema_20_slope', 'atr_14', 'atr_expansion_ratio', 'rsi_velocity',
-        'vwap_distance', 'amihud_illiquidity', 'trade_imbalance',
-        'volume_delta', 'strategy_health_score', 'strategy_recent_accuracy',
-        'strategy_avg_rr', 'last_5_trade_winrate', 'consecutive_losses',
-        'recent_drawdown', 'revenge_trade_score'
+        'ema_20_slope',
+        'atr_14',
+        'atr_expansion_ratio',
+        'rsi_velocity',
+        'vwap_distance',
+        'amihud_illiquidity',
+        'trade_imbalance',
+        'volume_delta',
+        'trend_alignment_score',
+        'volume_ratio',
     ]
 
     feature_sets = {

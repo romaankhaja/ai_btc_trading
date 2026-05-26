@@ -24,8 +24,7 @@ META_FEATURES = MOMENTUM_FEATURES + [
     'atr_14', 'realized_volatility', 'atr_velocity',
     'volatility_percentile', 'bb_width', 'bb_width_percentile',
     'volume_ratio', 'amihud_illiquidity', 'liquidity_pressure_score',
-    'volume_spike_score', 'regime_confidence', 'strategy_health_score',
-    'strategy_avg_rr', 'recent_drawdown', 'emotional_risk_score'
+    'volume_spike_score', 'regime_confidence'
 ]
 
 VOLATILITY_FEATURES = [
@@ -39,18 +38,20 @@ RISK_FEATURES = [
     'momentum_probability',       # injected from Model 1
     'predicted_volatility',       # injected from Model 2
     'atr_expansion_ratio', 'volatility_percentile',
-    'amihud_illiquidity',
-    'strategy_health_score', 'strategy_avg_rr',
-    'last_5_trade_winrate', 'consecutive_losses', 'recent_drawdown',
-    'emotional_risk_score'
+    'amihud_illiquidity'
 ]
 
 BEHAVIORAL_FEATURES = [
     'oversized_trade_score',
-    'overtrading_score', 'emotional_risk_score',
-    'consecutive_losses', 'recent_drawdown',
-    'fomo_score', 'loss_recovery_aggression',
-    'time_since_last_loss'
+    'overtrading_score',
+    'strategy_recent_accuracy',
+    'strategy_avg_rr',
+    'last_5_trade_winrate',
+    'strategy_health_score',
+    'revenge_trade_score',
+    'discipline_score',
+    'panic_exit_score',
+    'fomo_score'
 ]
 
 # ============================================================
@@ -115,16 +116,18 @@ THRESHOLDS = {
 MIN_CONFIDENCE = 0.57
 MAX_HOLDING_BARS = 12
 REGIME_MAX_BARS = {
-    'trending': MAX_HOLDING_BARS,
-    'sideways': round(MAX_HOLDING_BARS * 0.7),
-    'high_risk': round(MAX_HOLDING_BARS * 0.5),
+    'trending_up': MAX_HOLDING_BARS,
+    'trending_down': MAX_HOLDING_BARS,
+    'mixed': round(MAX_HOLDING_BARS * 0.7),
+    'ranging': round(MAX_HOLDING_BARS * 0.5),
 }
 REGIME_KELLY_MULTIPLIER = {
-    'trending': 0.5,
-    'sideways': 0.3,
-    'high_risk': 0.1,
+    'trending_up': 0.5,
+    'trending_down': 0.5,
+    'mixed': 0.3,
+    'ranging': 0.1,
 }
-NO_TRADE_REGIMES = ['high_risk']
+NO_TRADE_REGIMES = ['ranging']
 
 # Critical features that should trigger retraining quickly when they drift.
 CRITICAL_FEATURES = [

@@ -35,8 +35,6 @@ def compute_kelly_sizing(
     regime_kelly_multiplier: float = 1.0,
     max_risk_percent: float = 2.5,      # Absolute cap on position risk at 2.5% of equity
     kelly_fraction: float = 0.5,       # Half-Kelly for safety
-    consecutive_losses: int = 0,
-    recent_drawdown: float = 0.0
 ) -> SizingResult:
     """
     Computes position size using Binomial Kelly Criterion:
@@ -76,19 +74,9 @@ def compute_kelly_sizing(
     # High predicted volatility reduces the raw Kelly fraction
     vol_target_scalar = 0.01 / max(predicted_volatility, 0.001)
     
-    # 4. Tail Protection Gating & Drawdown Modifiers (Fix 7 / Correction 3)
-    safety_multiplier = 1.0
-    if consecutive_losses >= 3:
-        safety_multiplier *= 0.5
-        logger.info(f"  [Tail Protection] Consecutive losses ({consecutive_losses}) >= 3. Risk scaled down by 50%.")
-
+    # 4. Regime-based scalar modifiers
     raw_risk_pct = f_star * kelly_fraction * vol_target_scalar * regime_risk_modifier * 100.0
-    raw_risk_pct *= safety_multiplier
     raw_risk_pct *= regime_kelly_multiplier
-
-    if recent_drawdown > 0.03:
-        raw_risk_pct *= 0.5
-        logger.info(f"  [Tail Protection] Drawdown ({recent_drawdown:.1%}) > 3%. Risk scaled down by 50%.")
         
     # 5. Final Risk Percent
     # Hard cap risk at max_risk_percent (absolute limit 2.5%)

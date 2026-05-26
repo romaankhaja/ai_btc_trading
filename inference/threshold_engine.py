@@ -14,15 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 # Regime-aware threshold PERCENTILES within the momentum probability distribution.
-# e.g., trending_low_vol uses the 60th percentile of probabilities as threshold,
-# meaning we take the top 40% of signals.
+# Quiet ranging markets should be most selective; directional regimes can be looser.
 REGIME_PERCENTILE_THRESHOLDS = {
-    'trending_low_vol':  0.55,   # take top 45% of signals
-    'trending_high_vol': 0.65,   # take top 35% of signals
-    'sideways_low_vol':  0.75,   # take top 25% of signals
-    'choppy_high_vol':   0.90,   # take top 10% of signals
-    'crash_mode':        1.00,   # block all
-    'unknown':           0.80,
+    'trending_up':   0.55,
+    'trending_down': 0.55,
+    'mixed':         0.75,
+    'ranging':       0.90,
+    'unknown':       0.80,
 }
 
 
@@ -73,7 +71,6 @@ class AdaptiveThresholdEngine:
         self,
         regime_label: str,
         volatility_percentile: float = 0.5,
-        recent_drawdown: float = 0.0,
         strategy_health_score: float = 1.0,
         regime_confidence: float = 0.5,
     ) -> ThresholdState:
@@ -111,13 +108,6 @@ class AdaptiveThresholdEngine:
             adjusted = self._percentiles.get(higher_pct, adjusted)
             adjustments['vol_shift'] = pct_shift
         
-        # Drawdown: tighten filter
-        if recent_drawdown > 0.03:
-            pct_shift = min(recent_drawdown * 1.5, 0.10)
-            higher_pct = min(1.0, round(target_pct + pct_shift, 2))
-            adjusted = self._percentiles.get(higher_pct, adjusted)
-            adjustments['dd_shift'] = pct_shift
-        
         # Low strategy health: tighten
         if strategy_health_score < 0.5:
             pct_shift = (0.5 - strategy_health_score) * 0.10
@@ -143,12 +133,11 @@ def fit_threshold_engine(train_momentum_probs: np.ndarray):
 def compute_adaptive_threshold(
     regime_label: str,
     volatility_percentile: float = 0.5,
-    recent_drawdown: float = 0.0,
     strategy_health_score: float = 1.0,
     regime_confidence: float = 0.5,
 ) -> ThresholdState:
     """Compute threshold using the global engine."""
     return _global_engine.get_threshold(
         regime_label, volatility_percentile,
-        recent_drawdown, strategy_health_score, regime_confidence
+        strategy_health_score, regime_confidence
     )

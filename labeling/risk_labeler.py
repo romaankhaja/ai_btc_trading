@@ -30,16 +30,6 @@ def label_risk_single(row):
     if row.get('amihud_illiquidity', 0) > 0.1:
         score += 2
     
-    # Strategy health conditions
-    if row.get('consecutive_losses', 0) >= 3:
-        score += 2
-    if row.get('recent_drawdown', 0) > 0.05:
-        score += 2
-    if row.get('last_5_trade_winrate', 1.0) < 0.3:
-        score += 1
-    if row.get('strategy_health_score', 1.0) < 0.4:
-        score += 2
-    
     # Behavioral conditions
     if row.get('revenge_trade_score', 0) > 0.6:
         score += 3
@@ -47,13 +37,21 @@ def label_risk_single(row):
         score += 2
     if row.get('oversized_trade_score', 0) > 0.5:
         score += 2
+    if row.get('discipline_score', 1.0) < 0.4:
+        score += 2
+    if row.get('strategy_health_score', 1.0) < 0.4:
+        score += 2
+    if row.get('panic_exit_score', 0.0) > 0.6:
+        score += 1
+    if row.get('fomo_score', 0.0) > 0.6:
+        score += 1
     
     # Regime conditions
     regime = row.get('regime_label', '')
-    if regime == 'choppy_high_vol':
+    if regime == 'mixed':
+        score += 1
+    if regime == 'ranging':
         score += 3
-    if regime == 'crash_mode':
-        score += 10
     
     if score == 0:
         return 'LOW_RISK'

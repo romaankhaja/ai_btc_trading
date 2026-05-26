@@ -38,10 +38,8 @@ class PolicyEngine:
     4. Final authorization
     """
 
-    EMOTIONAL_BLOCK_THRESHOLD = 0.80
     STRATEGY_DISABLE_THRESHOLD = 0.25
     ILLIQUIDITY_BLOCK_THRESHOLD = 0.15
-    MAX_CONSECUTIVE_LOSSES = 8
     SL_COOLDOWN_BARS = 12
 
     def evaluate(self, model_outputs: ModelOutputs, features: dict) -> PolicyDecision:
@@ -51,20 +49,11 @@ class PolicyEngine:
         decision = PolicyDecision(allow_trade=True, risk_percent=1.0)
 
         # Stage 1: hard blocks
-        if model_outputs.regime_label == 'crash_mode':
+        if model_outputs.regime_label == 'ranging':
             decision.allow_trade = False
             decision.risk_percent = 0.0
-            decision.block_reasons.append('HARD_BLOCK: crash_mode regime detected')
+            decision.block_reasons.append('HARD_BLOCK: ranging regime detected')
             decision.regime_action = 'block'
-            return decision
-
-        emotional_score = features.get('emotional_risk_score', 0.0)
-        if emotional_score > self.EMOTIONAL_BLOCK_THRESHOLD:
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.block_reasons.append(
-                f'HARD_BLOCK: emotional_risk_score={emotional_score:.2f} > {self.EMOTIONAL_BLOCK_THRESHOLD}'
-            )
             return decision
 
         if model_outputs.behavioral_anomaly:
@@ -96,39 +85,39 @@ class PolicyEngine:
                 f'SOFT: strategy_health={health:.2f} < 0.30 -> 50% risk reduction'
             )
 
-        consec_losses = int(features.get('consecutive_losses', 0))
-        if consec_losses >= self.MAX_CONSECUTIVE_LOSSES:
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.block_reasons.append(
-                f'HARD_BLOCK: consecutive_losses={consec_losses} >= {self.MAX_CONSECUTIVE_LOSSES}'
-            )
-            return decision
-        if consec_losses >= 5:
-            decision.risk_percent *= 0.5
-            decision.warnings.append(
-                f'SOFT: consecutive_losses={consec_losses} >= 5 -> 50% risk reduction'
-            )
-
         if features.get('cusum_break', 0) == 1:
             decision.allow_trade = False
             decision.risk_percent = 0.0
             decision.block_reasons.append('HARD_BLOCK: CUSUM structural break signal is active')
             return decision
 
-        aggression = features.get('loss_recovery_aggression', 0.0)
+        discipline = features.get('discipline_score', 1.0)
+        if discipline < 0.25:
+            decision.allow_trade = False
+            decision.risk_percent = 0.0
+            decision.block_reasons.append(
+                f'HARD_BLOCK: discipline_score={discipline:.2f} < 0.25'
+            )
+            return decision
+        if discipline < 0.5:
+            decision.risk_percent *= 0.5
+            decision.warnings.append(
+                f'SOFT: discipline_score={discipline:.2f} < 0.50 -> 50% risk reduction'
+            )
+
+        aggression = features.get('revenge_trade_score', 0.0)
         overtrading = features.get('overtrading_score', 0.0)
         if aggression > 0.85:
             decision.allow_trade = False
             decision.risk_percent = 0.0
             decision.block_reasons.append(
-                f'HARD_BLOCK: loss_recovery_aggression={aggression:.2f} > 0.85 (Revenge trading detected)'
+                f'HARD_BLOCK: revenge_trade_score={aggression:.2f} > 0.85 (Revenge trading detected)'
             )
             return decision
         if aggression > 0.70:
             decision.risk_percent *= 0.5
             decision.warnings.append(
-                f'SOFT: loss_recovery_aggression={aggression:.2f} > 0.70 -> 50% risk reduction'
+                f'SOFT: revenge_trade_score={aggression:.2f} > 0.70 -> 50% risk reduction'
             )
 
         if overtrading > 0.85:
@@ -145,7 +134,7 @@ class PolicyEngine:
             )
 
         # Consecutive SL circuit breaker
-        sl_streak = int(features.get('consecutive_sl_count', consec_losses))
+        sl_streak = int(features.get('consecutive_sl_count', 0))
         sl_cooldown = int(features.get('sl_cooldown_bars_remaining', 0))
 
         if sl_cooldown > 0:
@@ -187,31 +176,17 @@ class PolicyEngine:
         # Stage 2: regime routing
         regime = model_outputs.regime_label
 
-        if regime == 'trending_low_vol':
+        if regime in ('trending_up', 'trending_down'):
             decision.regime_action = 'normal'
             decision.sl_multiplier = 1.0
             decision.tp_multiplier = 2.5
 
-        elif regime == 'trending_high_vol':
+        elif regime == 'mixed':
             decision.regime_action = 'reduce'
-            decision.sl_multiplier = 1.5
-            decision.tp_multiplier = 3.5
-            decision.risk_percent *= 0.7
-            decision.warnings.append('REGIME: trending_high_vol - reduced sizing')
-
-        elif regime == 'sideways_low_vol':
-            decision.regime_action = 'reduce'
-            decision.sl_multiplier = 0.8
-            decision.tp_multiplier = 1.2
-            decision.risk_percent *= 0.5
-            decision.warnings.append('REGIME: sideways_low_vol - reduced sizing and tighter execution')
-
-        elif regime == 'choppy_high_vol':
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.regime_action = 'block'
-            decision.block_reasons.append('HARD_BLOCK: choppy_high_vol regime - historically destructive')
-            return decision
+            decision.sl_multiplier = 1.2
+            decision.tp_multiplier = 1.6
+            decision.risk_percent *= 0.75
+            decision.warnings.append('REGIME: mixed - reduced sizing')
 
         # Stage 3: trend alignment
         ema_50_slope = features.get('ema_50_slope', 0.0)
@@ -224,12 +199,6 @@ class PolicyEngine:
             decision.warnings.append('TREND: LONG against bearish ema_50_slope -> 50% risk reduction')
 
         # Stage 4: soft adjustments
-        dd = features.get('recent_drawdown', 0.0)
-        if dd > 0.03:
-            dd_factor = max(0.3, 1.0 - dd * 5.0)
-            decision.risk_percent *= dd_factor
-            decision.warnings.append(f'SOFT: drawdown {dd:.2%} -> {dd_factor:.0%} risk factor')
-
         vol_pct = features.get('volatility_percentile', 0.5)
         if vol_pct > 0.75:
             vol_factor = max(0.5, 1.0 - (vol_pct - 0.75))
@@ -250,7 +219,7 @@ class PolicyEngine:
             decision.warnings.append(f'SOFT: oversized_trade_score={oversized:.2f} -> capped risk')
 
         decision.risk_percent = max(0.1, min(1.5, decision.risk_percent))
-        assert model_outputs.regime_label != 'crash_mode' or not decision.allow_trade, (
-            'crash_mode must always resolve to NO_TRADE'
+        assert model_outputs.regime_label != 'ranging' or not decision.allow_trade, (
+            'ranging must always resolve to NO_TRADE'
         )
         return decision

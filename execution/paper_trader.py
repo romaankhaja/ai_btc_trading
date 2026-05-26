@@ -160,7 +160,7 @@ class PaperTrader:
                     result.circuit_breaker_activations += 1
                 last_circuit_state = current_state
 
-            if trade is not None and trade.regime == 'trending_low_vol' and exit_reason == 'SL_HIT':
+            if trade is not None and trade.regime in ('trending_up', 'trending_down') and exit_reason == 'SL_HIT':
                 would_have_overridden = bool(trade.atr_ratio_at_entry > 1.4)
                 _log_circuit_event(
                     time_value,
@@ -332,15 +332,12 @@ class PaperTrader:
                     if allow_entry:
                         current_regime = decision.regime
                         breakout_allow = (
-                            current_regime == 'sideways_low_vol'
+                            current_regime == 'ranging'
                             and float(row.get('bb_width_percentile', 0.0)) > 0.70
                             and float(row.get('volume_spike_score', 0.0)) > 1.5
                         )
 
-                        if current_regime == 'crash_mode':
-                            allow_entry = False
-                            skip_reason = 'NO_TRADE_REGIME: crash_mode'
-                        elif current_regime in NO_TRADE_REGIMES and not breakout_allow:
+                        if current_regime in NO_TRADE_REGIMES and not breakout_allow:
                             allow_entry = False
                             skip_reason = f'NO_TRADE_REGIME: {current_regime}'
 
@@ -356,7 +353,7 @@ class PaperTrader:
                                 allow_entry = False
                                 skip_reason = f'RR_GATE: expected_rr={expected_rr:.2f} < 1.50'
 
-                        if allow_entry and current_regime == 'trending_low_vol':
+                        if allow_entry and current_regime in ('trending_up', 'trending_down'):
                             ema_20_slope = float(row.get('ema_20_slope', 0.0))
                             trend_alignment = float(row.get('trend_alignment_score', 0.0))
                             trade_dir = 1 if decision.action == 'LONG' else -1

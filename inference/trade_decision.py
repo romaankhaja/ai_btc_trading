@@ -95,12 +95,6 @@ class TradeDecisionEngine:
         atr_mean = features.get('atr_20bar_mean', 0.0)
         atr_ratio = float(atr) / float(atr_mean) if atr_mean else 0.0
         decision.atr_ratio = atr_ratio
-        if decision.raw_regime == 'trending_low_vol' and atr_ratio > 1.4:
-            outputs.regime_label = 'trending_high_vol'
-            features['regime_label'] = 'trending_high_vol'
-            decision.regime = 'trending_high_vol'
-            decision.regime_override_applied = True
-            decision.regime_override_reason = f'ATR ratio {atr_ratio:.2f} > 1.40 -> trending_high_vol'
 
         # 2. Policy Engine Gating
         policy = self.policy.evaluate(outputs, features)
@@ -117,7 +111,6 @@ class TradeDecisionEngine:
             threshold_state = self.threshold_engine.get_threshold(
                 regime_label=decision.regime,
                 volatility_percentile=features.get('volatility_percentile', 0.5),
-                recent_drawdown=features.get('recent_drawdown', 0.0),
                 strategy_health_score=features.get('strategy_health_score', 1.0),
                 regime_confidence=decision.regime_confidence,
             )
@@ -160,8 +153,6 @@ class TradeDecisionEngine:
                 regime_risk_modifier=policy.risk_percent, # Using Policy's modified risk as a scalar
                 regime_kelly_multiplier=REGIME_KELLY_MULTIPLIER.get(decision.regime, 1.0),
                 kelly_fraction=getattr(outputs, 'kelly_fraction', 0.5),
-                consecutive_losses=int(features.get('consecutive_losses', 0)),
-                recent_drawdown=float(features.get('recent_drawdown', 0.0))
             )
             
             decision.risk_percent = sizing.risk_percent

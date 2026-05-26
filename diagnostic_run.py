@@ -8,6 +8,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from inference.model_ensemble import ModelEnsemble
+from training.config import MOMENTUM_FEATURES
+from training.evaluate import get_feature_importance
+
+
+def _safe_bucket_counts(series):
+    return series.value_counts().sort_index().to_dict()
+
 
 def main():
     print("Loading test data...")
@@ -21,21 +28,18 @@ def main():
 
     # Get XGBoost feature importances
     try:
-        primary_model = ensemble.regime_models['sideways']['primary']
-        booster = primary_model.get_booster()
-        importance = booster.get_score(importance_type='weight')
-        sorted_importances = sorted(importance.items(), key=lambda x: x[1], reverse=True)
-        print("\n--- TOP 10 XGBOOST FEATURES (sideways primary model) ---")
-        for feat, score in sorted_importances[:10]:
-            print(f"  {feat}: {score}")
+        fi = get_feature_importance(ensemble.momentum_model, MOMENTUM_FEATURES)
+        print("\n--- TOP 5 XGBOOST FEATURES (global momentum model) ---")
+        for _, row in fi.head(5).iterrows():
+            print(f"  {row['feature']}: {row['importance']}")
     except Exception as e:
         print(f"Could not get feature importances: {e}")
 
     print("\nRunning inference...")
     results = []
     
-    # We need 4 bars forward to check actual price change
-    # If using 'close', forward change is close_in_4_bars - close_now
+    # We need 16 bars forward to match the current momentum horizon.
+    horizon = 16
     close_col = 'mark_close' if 'mark_close' in test_df.columns else 'close'
     closes = test_df[close_col].values
     timestamps = test_df['open_time'].values if 'open_time' in test_df.columns else test_df.index.values
@@ -43,7 +47,7 @@ def main():
     # Pre-calculate features to dictionary list for speed
     columns = list(test_df.columns)
     
-    for i in range(len(test_df) - 4):
+    for i in range(len(test_df) - horizon):
         if i % 1000 == 0:
             print(f"Processed {i} / {len(test_df)} bars")
             
@@ -52,9 +56,9 @@ def main():
         
         output = ensemble.predict(features)
         
-        # Calculate 4-bar forward return
+        # Calculate 16-bar forward return
         current_close = closes[i]
-        future_close = closes[i+4]
+        future_close = closes[i + horizon]
         actual_price_change = future_close - current_close
         
         predicted_dir = output.predicted_direction # 1 for LONG, -1 for SHORT
@@ -71,7 +75,7 @@ def main():
         results.append({
             'timestamp': timestamps[i],
             'predicted_direction': predicted_dir,
-            'actual_price_change_4bars': actual_price_change,
+            'actual_price_change_16bars': actual_price_change,
             'was_prediction_correct': correct,
             'regime': output.regime_label,
             'meta_probability': output.meta_probability
@@ -97,9 +101,23 @@ def main():
     bins = [0.0, 0.50, 0.55, 0.60, 0.65, 1.0]
     labels = ['<0.50', '0.50-0.55', '0.55-0.60', '0.60-0.65', '0.65+']
     res_df['prob_bucket'] = pd.cut(res_df['meta_probability'], bins=bins, labels=labels)
-    bucket_counts = res_df['prob_bucket'].value_counts().sort_index()
-    for bucket, count in bucket_counts.items():
+    bucket_counts = _safe_bucket_counts(res_df['prob_bucket'])
+    for bucket in labels:
+        count = bucket_counts.get(bucket, 0)
         print(f"  {bucket}: {count} bars")
+
+    pred_sign = (res_df['predicted_direction'] == 1).astype(int)
+    actual_sign = (res_df['actual_price_change_16bars'] > 0).astype(int)
+    tp = int(((pred_sign == 1) & (actual_sign == 1)).sum())
+    fp = int(((pred_sign == 1) & (actual_sign == 0)).sum())
+    tn = int(((pred_sign == 0) & (actual_sign == 0)).sum())
+    fn = int(((pred_sign == 0) & (actual_sign == 1)).sum())
+
+    print(f"\n--- CONFUSION MATRIX ---")
+    print(f"  TP: {tp}")
+    print(f"  FP: {fp}")
+    print(f"  TN: {tn}")
+    print(f"  FN: {fn}")
 
 if __name__ == '__main__':
     main()

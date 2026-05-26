@@ -22,11 +22,10 @@ rr_ratio: 2.0                 # default reward-to-risk ratio
 
 # ATR multipliers per regime (Section 7.4)
 atr_multipliers:
-  trending_low_vol: 1.5
-  trending_high_vol: 2.0
-  sideways_low_vol: 1.0
-  choppy_high_vol: 2.5
-  crash_mode: 3.0              # widest SL in crash mode
+  ranging: 1.0
+  trending_up: 1.5
+  trending_down: 1.5
+  mixed: 1.2
 
 # Backtest gate conditions (Section 11.2)
 backtest_gates:

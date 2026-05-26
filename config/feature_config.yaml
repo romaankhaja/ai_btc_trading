@@ -40,13 +40,8 @@ minimum_features:
   - spread_ratio
   - orderbook_imbalance
   - volume_delta
-  - strategy_health_score
-  - strategy_recent_accuracy
-  - strategy_avg_rr
-  - last_5_trade_winrate
-  - consecutive_losses
-  - recent_drawdown
-  - revenge_trade_score
+  - trend_alignment_score
+  - volume_ratio
 
 # Features available from OHLCV data only (no order book needed)
 # These are what we can compute in Phase 1 from Binance kline data
