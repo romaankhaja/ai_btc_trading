@@ -349,9 +349,9 @@ class PaperTrader:
 
                         if allow_entry:
                             expected_rr = float(decision.reward_risk_ratio)
-                            if expected_rr < 1.499:
+                            if expected_rr < 1.3:
                                 allow_entry = False
-                                skip_reason = f'RR_GATE: expected_rr={expected_rr:.2f} < 1.50'
+                                skip_reason = f'RR_GATE: expected_rr={expected_rr:.2f} < 1.30'
 
                         if allow_entry and current_regime in ('trending_up', 'trending_down'):
                             ema_20_slope = float(row.get('ema_20_slope', 0.0))

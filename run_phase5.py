@@ -148,8 +148,8 @@ def main():
     print("STEP 6: GOVERNANCE VALIDATION")
     print("=" * 60)
     
-    ranging_trades = [t for t in result.trades if t.regime == 'ranging']
-    print(f"  Trades in ranging: {len(ranging_trades)} (should be 0)")
+    trending_down_trades = [t for t in result.trades if t.regime == 'trending_down']
+    print(f"  Trades in trending_down: {len(trending_down_trades)} (should be 0)")
     
     print(f"  Max Drawdown: {result.max_drawdown*100:.2f}% (target: < 5%)")
     print(f"  Sharpe Ratio: {result.sharpe_ratio:.2f} (target: > 0.5)")

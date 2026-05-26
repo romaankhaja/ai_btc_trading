@@ -20,23 +20,23 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-def label_momentum(df, n_candles=16):
+def label_momentum(df, n_candles=16, tp_pct=0.006, sl_pct=0.006):
     """
     Generate momentum labels for the entire DataFrame.
     
     For each candle i:
       - Determine direction from ema_20_slope (>0 = LONG, <0 = SHORT)
-      - Get multipliers based on regime_label
-      - Set SL = entry +/- atr_14 * atr_mult_sl
-      - Set TP = entry +/- atr_14 * atr_mult_tp
+      - Use symmetric percentage TP/SL barriers
       - Look at next n_candles mark price HIGH/LOW to check if TP or SL hit first
       - Label = 1 if TP hit before SL, else 0
     
     Last n_candles rows get NaN (no future data available).
     
     Args:
-        df: DataFrame with columns: mark_close/close, mark_high/high, mark_low/low, atr_14, ema_20_slope, regime_label
+        df: DataFrame with columns: mark_close/close, mark_high/high, mark_low/low, ema_20_slope
         n_candles: Forward-looking horizon (default 16 = 4 hours on 15m)
+        tp_pct: Take-profit threshold as a decimal fraction of entry price
+        sl_pct: Stop-loss threshold as a decimal fraction of entry price
     
     Returns:
         List of labels (1/0/None)
@@ -48,41 +48,25 @@ def label_momentum(df, n_candles=16):
     closes = df[close_col].values
     highs = df[high_col].values
     lows = df[low_col].values
-    atrs = df['atr_14'].values
     slopes = df['ema_20_slope'].values
-    if 'regime_label' in df.columns:
-        regimes = df['regime_label'].values
-    elif 'regime_state' in df.columns:
-        regimes = pd.Series(df['regime_state']).fillna('mixed').astype(str).values
-    else:
-        regimes = np.full(len(df), 'mixed')
     
     n = len(df)
     labels = np.full(n, np.nan)
     
     for i in range(n - n_candles):
-        regime = regimes[i]
-        
-        # Regime-conditional multipliers
-        if regime == 'trending_up':
-            atr_mult_tp, atr_mult_sl = 5.0, 2.4
-        elif regime == 'trending_down':
-            atr_mult_tp, atr_mult_sl = 5.0, 2.4
-        elif regime == 'ranging':
-            atr_mult_tp, atr_mult_sl = 2.0, 1.6
-        else:
-            atr_mult_tp, atr_mult_sl = 2.5, 2.0
-            
         entry = closes[i]
-        atr = atrs[i]
-        direction = 1 if slopes[i] > 0 else -1
-        
-        if np.isnan(atr) or atr <= 0:
+        if entry <= 0 or np.isnan(entry):
             labels[i] = 0.0
             continue
-            
-        sl = entry - direction * atr * atr_mult_sl
-        tp = entry + direction * atr * atr_mult_tp
+
+        direction = 1 if slopes[i] > 0 else -1
+
+        if direction == 1:
+            sl = entry * (1.0 - sl_pct)
+            tp = entry * (1.0 + tp_pct)
+        else:
+            sl = entry * (1.0 + sl_pct)
+            tp = entry * (1.0 - tp_pct)
         
         tp_hit = False
         sl_hit = False

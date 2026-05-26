@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from inference.model_ensemble import ModelOutputs
+from training.config import NO_TRADE_REGIMES
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,10 @@ class PolicyEngine:
         decision = PolicyDecision(allow_trade=True, risk_percent=1.0)
 
         # Stage 1: hard blocks
-        if model_outputs.regime_label == 'ranging':
+        if model_outputs.regime_label in NO_TRADE_REGIMES:
             decision.allow_trade = False
             decision.risk_percent = 0.0
-            decision.block_reasons.append('HARD_BLOCK: ranging regime detected')
+            decision.block_reasons.append(f'HARD_BLOCK: {model_outputs.regime_label} regime detected')
             decision.regime_action = 'block'
             return decision
 
@@ -219,7 +220,7 @@ class PolicyEngine:
             decision.warnings.append(f'SOFT: oversized_trade_score={oversized:.2f} -> capped risk')
 
         decision.risk_percent = max(0.1, min(1.5, decision.risk_percent))
-        assert model_outputs.regime_label != 'ranging' or not decision.allow_trade, (
-            'ranging must always resolve to NO_TRADE'
+        assert model_outputs.regime_label not in NO_TRADE_REGIMES or not decision.allow_trade, (
+            'NO_TRADE_REGIMES must always resolve to NO_TRADE'
         )
         return decision

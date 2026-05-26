@@ -17,7 +17,7 @@ from inference.threshold_engine import (
     AdaptiveThresholdEngine,
     fit_threshold_engine,
 )
-from training.config import REGIME_KELLY_MULTIPLIER
+from training.config import REGIME_KELLY_MULTIPLIER, MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -124,10 +124,10 @@ class TradeDecisionEngine:
                 )
                 return decision
         else:
-            if outputs.meta_probability < 0.52:
+            if outputs.meta_probability < MIN_CONFIDENCE:
                 decision.action = 'NO_TRADE'
                 decision.block_reasons.append(
-                    f'THRESHOLD_FALLBACK: prob={outputs.meta_probability:.3f} < 0.52'
+                    f'THRESHOLD_FALLBACK: prob={outputs.meta_probability:.3f} < {MIN_CONFIDENCE:.2f}'
                 )
                 return decision
 
