@@ -58,8 +58,8 @@ class ModelEnsemble:
         reg_dir = self.models_dir / 'regime'
         self.regime_detector = NHHMMRegimeDetector.load(reg_dir)
         
-        # 2. Four Specialized Meta-Ensembles
-        regimes = ["trending_low_vol", "trending_high_vol", "sideways_low_vol", "crash_mode"]
+        # 2. Three Specialized Meta-Ensembles
+        regimes = ["trending", "sideways", "high_risk"]
         mom_dir = self.models_dir / 'momentum'
         
         for r in regimes:
@@ -114,10 +114,10 @@ class ModelEnsemble:
             features['regime_label'] = last_row['regime_label']
             features['regime_confidence'] = out.regime_confidence
         except Exception as e:
-            logger.warning(f"NHHMM regime prediction error: {e}. Defaulting to sideways_low_vol.")
-            out.regime_label = 'sideways_low_vol'
-            features['regime_state'] = 2
-            features['regime_label'] = 'sideways_low_vol'
+            logger.warning(f"NHHMM regime prediction error: {e}. Defaulting to sideways.")
+            out.regime_label = 'sideways'
+            features['regime_state'] = 1
+            features['regime_label'] = 'sideways'
             features['regime_confidence'] = 0.5
             
         # Import feature list constants

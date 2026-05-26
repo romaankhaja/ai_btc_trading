@@ -87,7 +87,13 @@ class PlattCalibratedMetaModel:
         """
         margins = self.xgb_model.predict(X, output_margin=True).reshape(-1, 1)
         margins_scaled = self.scaler.transform(margins)
-        proba = self.platt_lr.predict_proba(margins_scaled)[:, 1]
+        try:
+            proba = self.platt_lr.predict_proba(margins_scaled)[:, 1]
+        except AttributeError:
+            # Legacy sklearn pickles can be missing the old multi_class attribute.
+            if not hasattr(self.platt_lr, "multi_class"):
+                self.platt_lr.multi_class = "auto"
+            proba = self.platt_lr.predict_proba(margins_scaled)[:, 1]
         return np.column_stack([1.0 - proba, proba])
 
     def predict(self, X, output_margin=False):
@@ -138,7 +144,10 @@ def train_single_regime_ensemble(
     y_train_prim = (train_prim_clean['primary_label'] == 1).astype(int)  # 1=Long, 0=Short/Flat
     
     logger.info("  Training Primary Model...")
-    prim_model = xgb.XGBClassifier(**MOMENTUM_PARAMS, eval_metric='logloss')
+    pos_count_prim = y_train_prim.sum()
+    neg_count_prim = len(y_train_prim) - pos_count_prim
+    spw_prim = float(neg_count_prim / pos_count_prim) if pos_count_prim > 0 else 1.0
+    prim_model = xgb.XGBClassifier(**MOMENTUM_PARAMS, eval_metric='logloss', scale_pos_weight=spw_prim)
     prim_model.fit(X_train_prim, y_train_prim)
     
     # ---- B. Train Secondary Meta-Confidence Model --------------------------
@@ -146,7 +155,10 @@ def train_single_regime_ensemble(
     y_train_meta = train_meta_clean['meta_label'].astype(int)
     
     logger.info("  Training Meta-Confidence Model...")
-    meta_model = xgb.XGBClassifier(**MOMENTUM_PARAMS, eval_metric='logloss')
+    pos_count_meta = y_train_meta.sum()
+    neg_count_meta = len(y_train_meta) - pos_count_meta
+    spw_meta = float(neg_count_meta / pos_count_meta) if pos_count_meta > 0 else 1.0
+    meta_model = xgb.XGBClassifier(**MOMENTUM_PARAMS, eval_metric='logloss', scale_pos_weight=spw_meta)
     meta_model.fit(X_train_meta, y_train_meta)
     
     # ---- C. Platt Scaling Calibration -------------------------------------
@@ -224,7 +236,7 @@ def train_regime_meta_ensemble(
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     
-    regimes = ["trending_low_vol", "trending_high_vol", "sideways_low_vol", "crash_mode"]
+    regimes = ["trending", "sideways", "high_risk"]
     models = {}
     
     # Train each regime meta-ensemble

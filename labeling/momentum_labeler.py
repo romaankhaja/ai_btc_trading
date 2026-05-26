@@ -11,7 +11,7 @@ Features:
   - trending_low_vol : TP = 2.5x ATR, SL = 1.0x ATR
   - trending_high_vol: TP = 3.5x ATR, SL = 1.5x ATR
   - sideways_low_vol : TP = 1.2x ATR, SL = 0.8x ATR
-  - choppy_high_vol  : Skip labeling (returns NaN/nulls to avoid training models on un-tradeable noise)
+  - high_risk       : Use the generic fallback barriers so the regime remains trainable
 """
 
 import logging
@@ -21,10 +21,9 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 STATE_TO_LABEL = {
-    0: 'trending_low_vol',
-    1: 'trending_high_vol',
-    2: 'sideways_low_vol',
-    3: 'crash_mode',
+    0: 'trending',
+    1: 'sideways',
+    2: 'high_risk',
 }
 
 
@@ -59,11 +58,11 @@ def label_momentum(df, n_candles=8):
     atrs = df['atr_14'].values
     slopes = df['ema_20_slope'].values
     if 'regime_state' in df.columns:
-        regimes = pd.Series(df['regime_state']).map(STATE_TO_LABEL).fillna('sideways_low_vol').values
+        regimes = pd.Series(df['regime_state']).map(STATE_TO_LABEL).fillna('sideways').values
     elif 'regime_label' in df.columns:
         regimes = df['regime_label'].values
     else:
-        regimes = np.full(len(df), 'sideways_low_vol')
+        regimes = np.full(len(df), 'sideways')
     
     n = len(df)
     labels = np.full(n, np.nan)
@@ -72,16 +71,10 @@ def label_momentum(df, n_candles=8):
         regime = regimes[i]
         
         # Regime-conditional multipliers
-        if regime == 'trending_low_vol':
-            atr_mult_tp, atr_mult_sl = 2.5, 1.0
-        elif regime == 'trending_high_vol':
-            atr_mult_tp, atr_mult_sl = 3.5, 1.5
-        elif regime == 'sideways_low_vol':
+        if regime == 'trending':
+            atr_mult_tp, atr_mult_sl = 3.0, 1.2
+        elif regime == 'sideways':
             atr_mult_tp, atr_mult_sl = 1.2, 0.8
-        elif regime == 'choppy_high_vol':
-            # Skip labeling (returns NaN/nulls to avoid training models on un-tradeable noise)
-            labels[i] = np.nan
-            continue
         else:
             atr_mult_tp, atr_mult_sl = 1.5, 1.0
             

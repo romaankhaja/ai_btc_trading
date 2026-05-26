@@ -20,11 +20,31 @@ from training.evaluate import evaluate_momentum, get_feature_importance
 logger = logging.getLogger(__name__)
 
 
-def _train_momentum_model(X_train, y_train):
+def _build_momentum_sample_weight(y_train):
+    """Return fold-specific sample weights that mirror the class imbalance."""
+    y_arr = np.asarray(y_train, dtype=float)
+    pos_count = int(np.nansum(y_arr))
+    neg_count = int(np.sum(~np.isnan(y_arr)) - pos_count)
+    scale_pos_weight = float(neg_count / pos_count) if pos_count > 0 else 1.0
+    return np.where(y_arr == 1, scale_pos_weight, 1.0), scale_pos_weight, pos_count, neg_count
+
+
+def _train_momentum_model(X_train, y_train, sample_weight=None):
     """Train a single XGBoost + calibration model."""
-    base = xgb.XGBClassifier(**MOMENTUM_PARAMS)
+    if sample_weight is None:
+        sample_weight, scale_pos_weight, pos_count, neg_count = _build_momentum_sample_weight(y_train)
+    else:
+        _, scale_pos_weight, pos_count, neg_count = _build_momentum_sample_weight(y_train)
+
+    logger.info(
+        "  Momentum fold balance: pos=%d neg=%d scale_pos_weight=%.4f",
+        pos_count,
+        neg_count,
+        scale_pos_weight,
+    )
+    base = xgb.XGBClassifier(**MOMENTUM_PARAMS, scale_pos_weight=scale_pos_weight)
     model = CalibratedClassifierCV(base, method='isotonic', cv=3)
-    model.fit(X_train, y_train)
+    model.fit(X_train, y_train, sample_weight=sample_weight)
     return model
 
 
@@ -54,7 +74,10 @@ def train_momentum(train_df, val_df, test_df, output_dir):
         train_df, MOMENTUM_FEATURES, LABEL_MOMENTUM,
         train_fn=_train_momentum_model,
         eval_fn=evaluate_momentum,
-        n_splits=WF_N_SPLITS
+        n_splits=WF_N_SPLITS,
+        fit_params_fn=lambda X_train, y_train, fold=None: {
+            'sample_weight': _build_momentum_sample_weight(y_train)[0],
+        },
     )
     cv_summary = summarize_cv_results(cv_results)
     
@@ -66,8 +89,8 @@ def train_momentum(train_df, val_df, test_df, output_dir):
     valid_train = train_df.dropna(subset=[LABEL_MOMENTUM])
     X_train = valid_train[MOMENTUM_FEATURES]
     y_train = valid_train[LABEL_MOMENTUM]
-    
-    final_model = _train_momentum_model(X_train, y_train)
+
+    final_model = _train_momentum_model(X_train, y_train, sample_weight=_build_momentum_sample_weight(y_train)[0])
     
     # ---- Evaluate on Val/Test ----
     valid_val = val_df.dropna(subset=[LABEL_MOMENTUM])

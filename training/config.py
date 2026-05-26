@@ -14,7 +14,7 @@ MOMENTUM_FEATURES = [
     'rsi_velocity', 'rsi_velocity_5m',
     'volume_delta', 'atr_expansion_ratio',
     'vwap_distance', 'trade_imbalance',
-    'trend_alignment_score', 'regime_state'
+    'trend_alignment_score'
 ]
 
 # Meta-model features: primary signal plus orthogonal volatility, liquidity,
@@ -115,18 +115,16 @@ THRESHOLDS = {
 MIN_CONFIDENCE = 0.57
 MAX_HOLDING_BARS = 12
 REGIME_MAX_BARS = {
-    'trending_low_vol': MAX_HOLDING_BARS,
-    'trending_high_vol': MAX_HOLDING_BARS,
-    'sideways_low_vol': round(MAX_HOLDING_BARS * 0.7),
-    'crash_mode': round(MAX_HOLDING_BARS * 0.7),
+    'trending': MAX_HOLDING_BARS,
+    'sideways': round(MAX_HOLDING_BARS * 0.7),
+    'high_risk': round(MAX_HOLDING_BARS * 0.5),
 }
 REGIME_KELLY_MULTIPLIER = {
-    'trending_low_vol': 0.5,
-    'trending_high_vol': 0.8,
-    'sideways_low_vol': 0.3,
-    'crash_mode': 0.1,
+    'trending': 0.5,
+    'sideways': 0.3,
+    'high_risk': 0.1,
 }
-NO_TRADE_REGIMES = ['crash_mode']
+NO_TRADE_REGIMES = ['high_risk']
 
 # Critical features that should trigger retraining quickly when they drift.
 CRITICAL_FEATURES = [

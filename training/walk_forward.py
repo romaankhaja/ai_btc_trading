@@ -13,7 +13,15 @@ from sklearn.model_selection import TimeSeriesSplit
 logger = logging.getLogger(__name__)
 
 
-def walk_forward_cv(train_df, feature_cols, label_col, train_fn, eval_fn, n_splits=5):
+def walk_forward_cv(
+    train_df,
+    feature_cols,
+    label_col,
+    train_fn,
+    eval_fn,
+    n_splits=5,
+    fit_params_fn=None,
+):
     """
     Walk-forward cross-validation on the training set.
     
@@ -47,7 +55,8 @@ def walk_forward_cv(train_df, feature_cols, label_col, train_fn, eval_fn, n_spli
             f"train={len(X_train):,} val={len(X_val):,}"
         )
         
-        model = train_fn(X_train, y_train)
+        fit_params = fit_params_fn(X_train, y_train, fold=fold) if fit_params_fn else {}
+        model = train_fn(X_train, y_train, **fit_params)
         metrics = eval_fn(model, X_val, y_val)
         
         results.append({

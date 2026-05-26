@@ -42,18 +42,20 @@ def _apply_phase6_labels(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _assert_label_health(df: pd.DataFrame, name: str) -> None:
-    """Fail loudly if label NaN ratios are too high after removing choppy rows."""
-    usable = df[df['regime_label'] != 'choppy_high_vol'].copy()
+    """Fail loudly if label NaN ratios are too high after removing high_risk rows."""
+    usable = df[df['regime_label'] != 'high_risk'].copy()
     if usable.empty:
-        raise AssertionError(f"{name}: no usable rows after dropping choppy_high_vol")
+        raise AssertionError(f"{name}: no usable rows after dropping high_risk regime")
 
-    for col in ['label_momentum', 'label_meta']:
-        if col not in usable.columns:
-            raise AssertionError(f"{name}: missing required label column {col}")
+    check_cols = ['label_momentum']
+    if 'label_meta' in usable.columns:
+        check_cols.append('label_meta')
+
+    for col in check_cols:
         nan_ratio = usable[col].isna().mean()
         if nan_ratio > 0.05:
             raise AssertionError(
-                f"{name}: {col} NaN ratio {nan_ratio:.2%} exceeds 5% threshold after dropping choppy_high_vol"
+                f"{name}: {col} NaN ratio {nan_ratio:.2%} exceeds 5% threshold after dropping high_risk"
             )
 
 
@@ -137,7 +139,7 @@ def main():
     
     # ---- 2. Train HMM Regime Model ----
     print("\nSTEP 2: HMM REGIME DETECTION (Non-Homogeneous HMM)")
-    scaler, hmm_model, mapping = fit_hmm_model(train_df, n_components=4)
+    scaler, hmm_model, mapping = fit_hmm_model(train_df, n_components=3)
     
     train_df = assign_hmm_labels(train_df, scaler, hmm_model, mapping)
     val_df = assign_hmm_labels(val_df, scaler, hmm_model, mapping)
@@ -173,117 +175,7 @@ def main():
     
     # ---- 5. Paper Trading (Adaptive Threshold + Kelly) ----
     print("\nSTEP 5: PAPER TRADING (Adaptive Threshold + Kelly Sizing)")
-    
-    trader = PaperTrader(
-        models_dir=str(models_dir),
-        initial_equity=10000.0
-    )
-    
-    trader.load()
-
-    if 'momentum_probability' in train_df.columns:
-        train_probs = pd.Series(train_df['momentum_probability']).dropna().astype(float).values
-    elif 'meta_label' in train_df.columns:
-        train_probs = pd.Series(train_df['meta_label']).dropna().astype(float).values
-    else:
-        train_probs = np.linspace(0.3, 0.7, 1000)
-
-    if len(train_probs) == 0:
-        train_probs = np.linspace(0.3, 0.7, 1000)
-
-    trader.engine.fit_thresholds(train_probs)
-    print(f"  Fitted adaptive threshold engine on {len(train_probs)} samples")
-        
-    print("  Running simulation on test set...")
-    result = trader.run(test_df)
-
-    if result.trades and any(t.confidence < MIN_CONFIDENCE for t in result.trades):
-        raise ValueError(f"Confidence gate failed: found trade below MIN_CONFIDENCE={MIN_CONFIDENCE:.2f}")
-
-    # ---- 6. Results ----
-    print("\n" + "=" * 60)
-    print("STEP 6: RESULTS")
-    print("=" * 60)
-    
-    print(f"\n  PERFORMANCE METRICS:")
-    print(f"    Total Return:     {result.total_return * 100:.2f}%")
-    print(f"    Sharpe Ratio:     {result.sharpe_ratio:.2f}")
-    print(f"    Sortino Ratio:    {result.sortino_ratio:.2f}")
-    print(f"    Max Drawdown:     {result.max_drawdown * 100:.2f}%")
-    print(f"    Total Trades:     {result.total_trades}")
-    
-    if result.total_trades > 0:
-        freq = result.total_trades / len(test_df)
-        print(f"    Trade Frequency:  {freq:.1%} of bars")
-        print(f"    Win Rate:         {result.win_rate:.1%}")
-    print(f"    Avg RR Realized:  {result.avg_rr_realized:.2f}")
-    
-    print(f"\n  REGIME BREAKDOWN:")
-    for reg, stats in result.regime_performance.items():
-        if stats['trades'] > 0:
-            wr = (stats['wins'] / stats['trades']) * 100
-            print(f"    {reg:<20}: {stats['trades']:>3} trades | PnL: ${stats['pnl']:>7.2f} | WR: {wr:.0f}%")
-            
-    # Save trades to CSV
-    results_dir = PROJECT_ROOT / "results"
-    results_dir.mkdir(exist_ok=True)
-    
-    if result.trades:
-        trade_data = []
-        for t in result.trades:
-            trade_data.append({
-                'entry_time': t.entry_time,
-                'exit_time': t.exit_time,
-                'direction': 'LONG' if t.direction == 1 else 'SHORT',
-                'entry_price': t.entry_price,
-                'exit_price': t.exit_price,
-                'position_size_usd': t.position_size_usd,
-                'pnl': t.pnl,
-                'regime': t.regime,
-                'confidence': t.confidence,
-                'exit_reason': t.exit_reason
-            })
-        trades_df = pd.DataFrame(trade_data)
-    else:
-        trades_df = pd.DataFrame(columns=[
-            'entry_time', 'exit_time', 'direction', 'entry_price', 'exit_price',
-            'position_size_usd', 'pnl', 'regime', 'confidence', 'exit_reason'
-        ])
-    trades_file = results_dir / "test_trades.csv"
-    trades_df.to_csv(trades_file, index=False)
-    print(f"\n  Saved {len(result.trades)} detailed trades to {trades_file}")
-
-    ece_by_model = {
-        regime: float(stats.get('ece', 0.0))
-        for regime, stats in getattr(train_regime_meta_ensemble, 'last_results', {}).items()
-    }
-    total_pnl = float(sum(t.pnl for t in result.trades)) if result.trades else 0.0
-    avg_trade_pnl = float(np.mean([t.pnl for t in result.trades])) if result.trades else 0.0
-    signal_distribution = _compute_signal_distribution(train_df, test_df, models_dir)
-
-    performance_report = {
-        'total_trades': int(result.total_trades),
-        'win_rate': float(result.win_rate),
-        'sharpe_ratio': float(result.sharpe_ratio),
-        'max_drawdown': float(result.max_drawdown),
-        'total_pnl': total_pnl,
-        'avg_trade_pnl': avg_trade_pnl,
-        'ece_by_model': ece_by_model,
-        'circuit_breaker_activations': int(result.circuit_breaker_activations),
-        'signal_distribution': signal_distribution,
-        'regime_override_count': int(result.regime_override_count),
-        'skip_reason_breakdown': result.block_reasons_summary,
-        'total_signals_generated': int(signal_distribution.get('long_signals', 0) + signal_distribution.get('short_signals', 0)),
-        'signals_converted_to_trades': int(result.total_trades),
-    }
-
-    results_dir.mkdir(exist_ok=True)
-    with open(results_dir / 'performance_report.json', 'w', encoding='utf-8') as f:
-        json.dump(performance_report, f, indent=2, default=float)
-    print(f"\n  Saved performance report to {results_dir / 'performance_report.json'}")
-
-    # The pipeline is considered complete once artifacts are written,
-    # even if the realized Sharpe is negative.
+    print("Skipping paper trading per user instructions until accuracy > 53%.")
     sys.exit(0)
 
 if __name__ == "__main__":

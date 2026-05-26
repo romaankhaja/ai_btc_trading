@@ -21,11 +21,11 @@ def main():
 
     # Get XGBoost feature importances
     try:
-        primary_model = ensemble.regime_models['sideways_low_vol']['primary']
+        primary_model = ensemble.regime_models['sideways']['primary']
         booster = primary_model.get_booster()
         importance = booster.get_score(importance_type='weight')
         sorted_importances = sorted(importance.items(), key=lambda x: x[1], reverse=True)
-        print("\n--- TOP 10 XGBOOST FEATURES (sideways_low_vol primary model) ---")
+        print("\n--- TOP 10 XGBOOST FEATURES (sideways primary model) ---")
         for feat, score in sorted_importances[:10]:
             print(f"  {feat}: {score}")
     except Exception as e:

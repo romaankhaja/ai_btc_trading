@@ -27,15 +27,16 @@ REGIME_FEATURES = [
     'bb_width_percentile'
 ]
 
-# Mapping of cluster centroids to human-readable regime names
-# This gets auto-mapped based on centroid characteristics
+# Mapping of cluster centroids to human-readable regime names.
+# The clustering is intentionally collapsed to 3 regimes:
+# trending, sideways, and high_risk.
 REGIME_NAMES = [
-    'trending_low_vol',
-    'trending_high_vol',
-    'sideways_low_vol',
-    'choppy_high_vol',
-    'crash_mode'
+    'trending',
+    'sideways',
+    'high_risk'
 ]
+
+DEFAULT_N_CLUSTERS = 3
 
 
 def auto_map_clusters(km, scaler, feature_names):
@@ -43,11 +44,9 @@ def auto_map_clusters(km, scaler, feature_names):
     Automatically map cluster IDs to regime names based on centroid characteristics.
     
     Logic:
-    - High ema_20_slope + low atr_expansion → trending_low_vol
-    - High ema_20_slope + high atr_expansion → trending_high_vol
-    - Low abs(ema_20_slope) + low atr_expansion → sideways_low_vol
-    - Low abs(ema_20_slope) + high atr_expansion → choppy_high_vol
-    - Extreme atr_expansion + extreme volatility_percentile → crash_mode
+    - High atr_expansion -> high_risk (combines crash_mode + choppy_high_vol)
+    - High ema_20_slope -> trending (combines trending_low_vol + trending_high_vol)
+    - Low abs(ema_20_slope) + low atr_expansion -> sideways
     """
     # Get centroids in original feature space
     centroids_scaled = km.cluster_centers_
@@ -58,7 +57,7 @@ def auto_map_clusters(km, scaler, feature_names):
     mapping = {}
     used_names = set()
     
-    # Sort clusters by volatility (atr_expansion_ratio) to assign crash_mode first
+    # Sort clusters by volatility (atr_expansion_ratio) to assign high_risk first
     vol_order = centroid_df['atr_expansion_ratio'].argsort()[::-1]
     
     for cluster_id in vol_order:
@@ -67,21 +66,15 @@ def auto_map_clusters(km, scaler, feature_names):
         vol_pct = row['volatility_percentile']
         ema_slope = abs(row['ema_20_slope'])
         
-        if 'crash_mode' not in used_names and atr_exp > 2.0 and vol_pct > 0.8:
-            mapping[cluster_id] = 'crash_mode'
-            used_names.add('crash_mode')
-        elif 'choppy_high_vol' not in used_names and atr_exp > 1.3 and ema_slope < 0.3:
-            mapping[cluster_id] = 'choppy_high_vol'
-            used_names.add('choppy_high_vol')
-        elif 'trending_high_vol' not in used_names and atr_exp > 1.0 and ema_slope > 0.2:
-            mapping[cluster_id] = 'trending_high_vol'
-            used_names.add('trending_high_vol')
-        elif 'sideways_low_vol' not in used_names and atr_exp < 1.0 and ema_slope < 0.2:
-            mapping[cluster_id] = 'sideways_low_vol'
-            used_names.add('sideways_low_vol')
-        elif 'trending_low_vol' not in used_names:
-            mapping[cluster_id] = 'trending_low_vol'
-            used_names.add('trending_low_vol')
+        if 'high_risk' not in used_names and atr_exp > 1.3:
+            mapping[cluster_id] = 'high_risk'
+            used_names.add('high_risk')
+        elif 'trending' not in used_names and ema_slope > 0.2:
+            mapping[cluster_id] = 'trending'
+            used_names.add('trending')
+        elif 'sideways' not in used_names:
+            mapping[cluster_id] = 'sideways'
+            used_names.add('sideways')
         else:
             # Fallback for any unmapped
             remaining = set(REGIME_NAMES) - used_names
@@ -94,7 +87,7 @@ def auto_map_clusters(km, scaler, feature_names):
     return mapping, centroid_df
 
 
-def fit_regime_model(train_df, n_clusters=5, random_state=42):
+def fit_regime_model(train_df, n_clusters=DEFAULT_N_CLUSTERS, random_state=42):
     """
     Fit KMeans on training data ONLY.
     

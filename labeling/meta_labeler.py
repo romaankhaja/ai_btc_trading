@@ -13,7 +13,7 @@ Features:
   - trending_low_vol : TP = 2.5x ATR, SL = 1.0x ATR
   - trending_high_vol: TP = 3.5x ATR, SL = 1.5x ATR
   - sideways_low_vol : TP = 1.2x ATR, SL = 0.8x ATR
-  - choppy_high_vol  : Skip labeling (returns NaN/nulls to avoid training models on un-tradeable noise)
+  - high_risk       : Use the generic fallback barriers so the regime remains trainable
 """
 
 import logging
@@ -24,10 +24,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 STATE_TO_LABEL = {
-    0: "trending_low_vol",
-    1: "trending_high_vol",
-    2: "sideways_low_vol",
-    3: "crash_mode",
+    0: "trending",
+    1: "sideways",
+    2: "high_risk",
 }
 
 
@@ -76,27 +75,20 @@ def apply_triple_barrier(df, t1=12):
     # Check if regime state labels exist. Use the canonical regime_state column
     # when available, and fall back to regime_label for older datasets.
     if 'regime_state' in df.columns:
-        regimes = pd.Series(df['regime_state']).map(STATE_TO_LABEL).fillna('sideways_low_vol').values
+        regimes = pd.Series(df['regime_state']).map(STATE_TO_LABEL).fillna('sideways').values
     elif 'regime_label' in df.columns:
         regimes = df['regime_label'].values
     else:
-        regimes = np.full(len(df), 'sideways_low_vol')
+        regimes = np.full(len(df), 'sideways')
     
     for i in range(len(df) - t1):
         regime = regimes[i]
         
         # Regime-conditional multipliers
-        if regime == 'trending_low_vol':
-            mult_tp, mult_sl = 2.5, 1.0
-        elif regime == 'trending_high_vol':
-            mult_tp, mult_sl = 3.5, 1.5
-        elif regime == 'sideways_low_vol':
+        if regime == 'trending':
+            mult_tp, mult_sl = 3.0, 1.2
+        elif regime == 'sideways':
             mult_tp, mult_sl = 1.2, 0.8
-        elif regime == 'choppy_high_vol':
-            # Skip labeling (returns NaN/nulls to avoid training models on un-tradeable noise)
-            meta_labels[i] = np.nan
-            dirs[i] = 0  # Force flat/no trade direction
-            continue
         else:
             # Fallback or default
             mult_tp, mult_sl = 1.5, 1.0

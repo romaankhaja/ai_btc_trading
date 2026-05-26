@@ -13,15 +13,14 @@ Architecture:
     conditioned on the macro covariate vector at time t.
   - Decoding         : Custom Viterbi with time-varying T matrices.
 
-Regime states (4):
-  0 → trending_low_vol
-  1 → trending_high_vol
-  2 → sideways_low_vol
-  3 → crash_mode
+Regime states (3):
+  0 → trending
+  1 → sideways
+  2 → high_risk
 
 Usage:
     from regime.nhhmm import NHHMMRegimeDetector
-    detector = NHHMMRegimeDetector(n_states=4)
+    detector = NHHMMRegimeDetector(n_states=3)
     detector.fit(train_df)
     train_df['regime_label'] = detector.decode(train_df)
 """
@@ -45,10 +44,9 @@ TRANSITION_FEATURES = ["dxy_trend", "us_10y_roc", "btc_spx_corr"]
 
 # Canonical state-name mapping (assigned post-hoc by centroid inspection)
 DEFAULT_MAPPING = {
-    0: "trending_low_vol",
-    1: "trending_high_vol",
-    2: "sideways_low_vol",
-    3: "crash_mode",
+    0: "trending",
+    1: "sideways",
+    2: "high_risk"
 }
 
 
@@ -57,7 +55,7 @@ class NHHMMRegimeDetector:
     Non-Homogeneous HMM: GaussianHMM emissions + logistic transition covariates.
     """
 
-    def __init__(self, n_states: int = 4, n_iter: int = 100, random_state: int = 42):
+    def __init__(self, n_states: int = 3, n_iter: int = 100, random_state: int = 42):
         self.n_states = n_states
         self.n_iter   = n_iter
         self.random_state = random_state
@@ -108,22 +106,18 @@ class NHHMMRegimeDetector:
         sorted_by_vol = np.argsort(vols)  # ascending volatility
         mapping = {}
 
-        # Two lowest-vol states → trending vs sideways by |return|
+        # Lowest-vol states -> sideways and trending (by return)
         low_vol_states = sorted_by_vol[:2]
         rets_low = np.abs(rets[low_vol_states])
-        trending_low  = low_vol_states[np.argmax(rets_low)]
-        sideways_low  = low_vol_states[np.argmin(rets_low)]
+        trending = low_vol_states[np.argmax(rets_low)]
+        sideways = low_vol_states[np.argmin(rets_low)]
 
-        # Two highest-vol states → trending_high vs crash_mode by sign of return
-        high_vol_states = sorted_by_vol[2:]
-        rets_high = rets[high_vol_states]
-        trending_high = high_vol_states[np.argmax(rets_high)]
-        crash_mode    = high_vol_states[np.argmin(rets_high)]
+        # highest-vol state -> high_risk
+        high_risk = sorted_by_vol[-1]
 
-        mapping[int(trending_low)]  = "trending_low_vol"
-        mapping[int(sideways_low)]  = "sideways_low_vol"
-        mapping[int(trending_high)] = "trending_high_vol"
-        mapping[int(crash_mode)]    = "crash_mode"
+        mapping[int(trending)]  = "trending"
+        mapping[int(sideways)]  = "sideways"
+        mapping[int(high_risk)] = "high_risk"
 
         # Fill any gaps (n_states > 4) with generic label
         for i in range(self.n_states):
