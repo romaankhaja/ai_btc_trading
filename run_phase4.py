@@ -97,7 +97,7 @@ def main():
         mlflow.log_metrics({"test_" + k: v for k, v in beh_test.items()})
         
     # 6. Backtest Validation
-    run_backtest_validation(test_df)
+    run_backtest_validation(test_df, train_df=train_df)
     
     print("\n" + "#" * 60)
     print("#  PHASE 4 COMPLETE")
