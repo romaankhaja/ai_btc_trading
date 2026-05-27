@@ -99,9 +99,14 @@ def _simulate(
     for _, row in df.iterrows():
         regime = row.get('regime_label', 'unknown')
         prob   = float(row.get('momentum_probability', 0.0))
-        label  = int(row.get('label_momentum', 0))
         risk   = row.get('label_risk', 'MEDIUM_RISK')
         behav  = int(row.get('label_behavioral', 0))
+
+        # Skip unlabeled rows (tail rows Phase 3 leaves as NaN)
+        raw_label = row.get('label_momentum', float('nan'))
+        if raw_label != raw_label:   # fast NaN check, no extra import
+            continue
+        label = int(raw_label)
 
         # --- hard blocks (same as Phase 5) ---
         if risk == 'NO_TRADE':
