@@ -1,13 +1,18 @@
 """
 Momentum Labeler — fixed TP/SL barrier label.
 
-Key fixes over the original:
-  1. Same-candle TP+SL resolution uses the candle's open relative to
-     entry (not the next open) — avoids look-ahead and reduces noise.
-  2. Symmetric: labels LONG setups (label=1 if TP first, 0 if SL first).
-  3. A label is only assigned when the barrier is cleanly resolved — no
-     ambiguous labels.
-  4. Vectorised inner loop using numpy for ~50x speed-up.
+No structural changes from the reviewed version — the vectorised barrier
+logic was correct. Only the TP/SL constants are updated to match config.py:
+
+  Old: TP=1.5%, SL=0.6%  → break-even win rate 28.6%
+  New: TP=1.2%, SL=0.5%  → break-even win rate 29.4%
+
+The labeler always reads from config so it stays in sync automatically.
+If you change MOMENTUM_TP_PCT/SL_PCT in config.py, the labels update on
+the next Phase 3 run.
+
+Tie-break rule: same-candle TP+SL uses the next candle's open vs entry
+(open >= entry → TP first). This is conservative and avoids look-ahead.
 """
 
 import logging
@@ -32,19 +37,18 @@ def label_momentum(
     Generate binary momentum labels for the entire DataFrame.
 
     For each candle i (entry = close[i]):
-      - TP barrier = entry * (1 + tp_pct)
-      - SL barrier = entry * (1 - sl_pct)
+      - TP barrier = entry × (1 + tp_pct)
+      - SL barrier = entry × (1 − sl_pct)
       - Scan the next n_candles candles for first barrier touch
       - Label 1  → TP reached first  (winning long)
       - Label 0  → SL reached first  (losing long)
       - Label NaN → unresolved within horizon (tail rows, excluded from training)
 
     Same-candle TP+SL tie-break:
-      When a candle simultaneously pierces both barriers we resolve by
-      checking whether the candle opened above or below entry:
-        open >= entry  → treat as TP hit first  (price moved up first)
-        open <  entry  → treat as SL hit first  (price moved down first)
-      This is conservative and avoids any look-ahead.
+      When a candle simultaneously pierces both barriers, check that candle's
+      open vs entry:
+        open >= entry  → TP hit first (price was above entry when candle opened)
+        open <  entry  → SL hit first (price gapped down through entry)
     """
     open_col  = 'mark_open'  if 'mark_open'  in df.columns else 'open'
     close_col = 'mark_close' if 'mark_close' in df.columns else 'close'
@@ -86,7 +90,6 @@ def label_momentum(
             labels[i] = 0.0
         else:
             # Same candle: tie-break on that candle's open vs entry
-            # open >= entry means price was already above entry → TP more likely first
             labels[i] = 1.0 if window_o[tp_first] >= entry else 0.0
 
     pos = int(np.nansum(labels == 1))
