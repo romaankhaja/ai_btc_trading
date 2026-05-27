@@ -17,6 +17,16 @@ MOMENTUM_FEATURES = [
     'trend_alignment_score'
 ]
 
+DERIVATIVES_FEATURES = [
+    'funding_rate_zscore',
+    'funding_rate_extreme',
+    'oi_momentum_4h',
+    'oi_price_divergence',
+    'ls_ratio_zscore',
+]
+
+MOMENTUM_FEATURES = MOMENTUM_FEATURES + DERIVATIVES_FEATURES
+
 # Meta-model features: primary signal plus orthogonal volatility and liquidity
 # context. Derivatives inputs are intentionally excluded
 # until live ingestion is wired end-to-end.

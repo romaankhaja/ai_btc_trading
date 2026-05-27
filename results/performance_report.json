@@ -1,31 +1,30 @@
 {
-  "total_trades": 7,
-  "win_rate": 0.2857142857142857,
-  "sharpe_ratio": -0.6398495898729006,
-  "sortino_ratio": -0.31977946117794864,
-  "max_drawdown": -0.043864453888408685,
-  "total_pnl": -111.89010941088067,
-  "total_return": -0.011189010941088054,
-  "avg_rr_realized": 2.013832440362642,
+  "total_trades": 11,
+  "win_rate": 0.2727272727272727,
+  "sharpe_ratio": -1.1127225797757108,
+  "sortino_ratio": -0.3876396391496029,
+  "max_drawdown": -0.035710149830441386,
+  "total_pnl": -218.20921399181725,
+  "total_return": -0.02182092139918168,
+  "avg_rr_realized": 2.0146134180435826,
   "regime_performance": {
-    "trending_up": {
-      "trades": 1,
-      "pnl": 230.28986331151145,
+    "mixed": {
+      "trades": 7,
+      "pnl": -426.2410919832582,
       "wins": 1
     },
-    "mixed": {
-      "trades": 6,
-      "pnl": -342.1799727223921,
-      "wins": 1
+    "trending_up": {
+      "trades": 4,
+      "pnl": 208.03187799144092,
+      "wins": 2
     }
   },
   "skip_reason_breakdown": {
-    "HARD_BLOCK": 4738,
-    "ADAPTIVE_THRESHOLD": 89,
-    "CONFIDENCE_GATE": 140,
-    "TREND_GATE": 11,
-    "RR_GATE": 6,
-    "DRAWDOWN_BLOCK": 48
+    "HARD_BLOCK": 4771,
+    "ADAPTIVE_THRESHOLD": 137,
+    "CONFIDENCE_GATE": 135,
+    "RR_GATE": 8,
+    "TREND_GATE": 12
   },
-  "circuit_breaker_activations": 2
+  "circuit_breaker_activations": 5
 }

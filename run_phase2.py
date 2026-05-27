@@ -71,6 +71,7 @@ def step_master_features():
     df.to_parquet(out_path, engine="pyarrow", index=False)
     print(f"  [*] Saved final master features: {len(df)} rows")
     print(f"  [*] Total columns ready for Phase 3: {len(df.columns)}")
+    return df, out_path
 
 def main():
     parser = argparse.ArgumentParser(description="Phase 2: Efficient Feature Engineering Pipeline")
@@ -87,7 +88,25 @@ def main():
 
     step_multi_tf()
     step_liquidity()
-    step_master_features()
+    master_df, master_features_path = step_master_features()
+
+    from data_pipeline.derivatives_fetcher import fetch_all
+    from feature_engineering.derivatives_features import merge_derivatives_features
+
+    derivatives_dir = PROJECT_ROOT / "data" / "derivatives" / "BTCUSDT"
+    if not (derivatives_dir / "funding_rate.parquet").exists():
+        print("Fetching derivatives data from Binance...")
+        fetch_all()
+    else:
+        print("Derivatives data already cached, skipping fetch.")
+
+    before_cols = len(master_df.columns)
+    master_df = merge_derivatives_features(master_df)
+    after_cols = len(master_df.columns)
+    master_df.to_parquet(master_features_path, engine="pyarrow", index=False)
+    print(f"Master features updated: {len(master_df.columns)} columns")
+    print(f"Total columns before: {before_cols}")
+    print(f"Total columns after: {after_cols}")
 
     print("\n" + "#" * 60)
     print("#  [*] PHASE 2 COMPLETE")

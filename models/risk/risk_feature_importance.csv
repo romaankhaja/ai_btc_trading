@@ -1,8 +1,8 @@
 feature,importance
-regime_state,0.50615966
-volatility_percentile,0.2010447
-amihud_illiquidity,0.18127973
-regime_confidence,0.079465404
-atr_expansion_ratio,0.014610877
-momentum_probability,0.0088584125
-predicted_volatility,0.0085812
+regime_state,0.5126525
+volatility_percentile,0.20952402
+amihud_illiquidity,0.1681137
+regime_confidence,0.07874266
+atr_expansion_ratio,0.014674567
+predicted_volatility,0.008553093
+momentum_probability,0.007739413
