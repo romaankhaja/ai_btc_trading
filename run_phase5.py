@@ -1,17 +1,21 @@
 """
 Phase 5 Orchestrator — Policy Engine Validation.
 
-Runs the full inference pipeline against the test set
-in paper trading mode and validates system behavior.
+Key fix: the saved momentum model was trained on a specific feature set.
+Phase 5 MUST use that same feature set for inference — it cannot switch
+to a reduced feature set at runtime on an already-trained model.
 
-Key change: checks derivatives feature drift against training set
-BEFORE running inference and rebuilds the feature set used for
-threshold calibration accordingly. Prints a clear drift summary.
+The drift gate now does two things:
+  1. Warns when derivatives features have drifted.
+  2. Writes a flag file so the NEXT Phase 4 run trains without derivatives.
+
+It does NOT change the feature set used for inference in this run.
 """
 
 import sys
 import argparse
 import logging
+import json
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -42,14 +46,27 @@ def setup_logging(verbose=False):
 
 logger = logging.getLogger(__name__)
 
+TRAINED_FEATURES_PATH = PROJECT_ROOT / "models" / "momentum" / "trained_features.json"
+
+
+def load_trained_features() -> list:
+    """Load the feature list the saved momentum model was actually trained on."""
+    if TRAINED_FEATURES_PATH.exists():
+        with open(TRAINED_FEATURES_PATH) as f:
+            features = json.load(f)
+        logger.info("  Loaded trained features from %s (%d features)", TRAINED_FEATURES_PATH, len(features))
+        return features
+    else:
+        logger.warning(
+            "  trained_features.json not found — using config MOMENTUM_FEATURES. "
+            "Re-run Phase 4 to generate this file."
+        )
+        return list(MOMENTUM_FEATURES)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Phase 5: Policy Engine Validation")
     parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument(
-        "--force-no-derivatives", action="store_true",
-        help="Force disable derivatives features regardless of drift check"
-    )
     args = parser.parse_args()
     setup_logging(args.verbose)
 
@@ -71,12 +88,23 @@ def main():
     print(f"  Test:  {len(test_df):,} rows")
     print(f"  Test range: {test_df['open_time'].min()} to {test_df['open_time'].max()}")
 
-    # ── Drift Detection ────────────────────────────────────────────────────
+    # ── Load trained feature set ───────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("STEP 2: DRIFT DETECTION")
+    print("STEP 2: LOAD TRAINED FEATURE SET")
     print("=" * 60)
 
-    all_features = list(dict.fromkeys(MOMENTUM_FEATURES + VOLATILITY_FEATURES))
+    inference_features = load_trained_features()
+    print(f"  Inference features ({len(inference_features)}): {inference_features}")
+
+    # Patch config so ModelEnsemble and PaperTrader use the correct features
+    cfg.MOMENTUM_FEATURES = inference_features
+
+    # ── Drift Detection ────────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("STEP 3: DRIFT DETECTION")
+    print("=" * 60)
+
+    all_features = list(dict.fromkeys(inference_features + VOLATILITY_FEATURES))
     drift = DriftDetector()
     drift.fit(train_df, all_features)
     report = drift.check(test_df, all_features)
@@ -86,55 +114,38 @@ def main():
     if report.features_drifted:
         for f in report.features_drifted:
             print(f"    {f}: PSI={report.psi_scores[f]:.4f}")
-    if report.retrain_recommended:
-        print("  WARNING: Retraining recommended due to significant drift!")
-    else:
-        print("  Drift within acceptable bounds.")
-
-    # ── Derivatives drift gate ─────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("STEP 2b: DERIVATIVES DRIFT GATE")
-    print("=" * 60)
 
     available_deriv = [f for f in DERIVATIVES_FEATURES if f in train_df.columns]
+    drifted_deriv = [
+        f for f in available_deriv
+        if report.psi_scores.get(f, 0.0) > DERIVATIVES_DRIFT_PSI_LIMIT
+    ]
 
-    if args.force_no_derivatives:
-        use_derivatives = False
-        print("  Derivatives features DISABLED (--force-no-derivatives flag).")
+    print("\n  DERIVATIVES DRIFT ASSESSMENT:")
+    flag_path = PROJECT_ROOT / "models" / "disable_derivatives.flag"
+    if drifted_deriv:
+        print(f"  WARNING: {len(drifted_deriv)} derivatives features drifted (PSI > {DERIVATIVES_DRIFT_PSI_LIMIT}):")
+        for f in drifted_deriv:
+            print(f"    {f}: PSI={report.psi_scores[f]:.4f}")
+        print("  => Writing flag: next Phase 4 run will train WITHOUT derivatives.")
+        flag_path.parent.mkdir(parents=True, exist_ok=True)
+        flag_path.write_text("derivatives disabled due to drift detected in Phase 5")
     else:
-        drifted_deriv = [
-            f for f in available_deriv
-            if report.psi_scores.get(f, 0.0) > DERIVATIVES_DRIFT_PSI_LIMIT
-        ]
-        if drifted_deriv:
-            use_derivatives = False
-            print(f"  Derivatives drift exceeds PSI limit ({DERIVATIVES_DRIFT_PSI_LIMIT}):")
-            for f in drifted_deriv:
-                print(f"    {f}: PSI={report.psi_scores[f]:.4f}")
-            print("  => Switching to BASE features only for threshold calibration.")
-        else:
-            use_derivatives = True
-            print(f"  Derivatives features within drift bounds — using full feature set.")
+        print("  Derivatives within drift bounds.")
+        if flag_path.exists():
+            flag_path.unlink()
 
-    # Patch live config so ModelEnsemble/PaperTrader pick up the right features
-    cfg.USE_DERIVATIVES_FEATURES = use_derivatives
-    active_momentum_features = (
-        MOMENTUM_BASE_FEATURES + DERIVATIVES_FEATURES
-        if use_derivatives
-        else list(MOMENTUM_BASE_FEATURES)
-    )
-    cfg.MOMENTUM_FEATURES = active_momentum_features
-    print(f"\n  Active momentum features ({len(active_momentum_features)}): {active_momentum_features}")
+    if report.retrain_recommended:
+        print("\n  WARNING: Retraining recommended due to significant drift!")
 
     # ── Calibrate Threshold Engine ─────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("STEP 3: CALIBRATE ADAPTIVE THRESHOLD ENGINE")
+    print("STEP 4: CALIBRATE ADAPTIVE THRESHOLD ENGINE")
     print("=" * 60)
 
     ens = ModelEnsemble(str(PROJECT_ROOT / "models"))
     ens.load()
 
-    # Sample training set for speed (every 5th row)
     sample_indices = range(0, len(train_df), 5)
     train_probs = []
     for i in sample_indices:
@@ -155,19 +166,17 @@ def main():
     print(f"  Median: {np.median(train_probs):.3f}")
     print(f"  P25={np.percentile(train_probs,25):.3f}  P75={np.percentile(train_probs,75):.3f}  P95={np.percentile(train_probs,95):.3f}")
 
-    # Warn if distribution has collapsed (model is confused by drift)
     prob_range = train_probs.max() - train_probs.min()
-    if prob_range < 0.2:
+    if prob_range < 0.3:
         logger.warning(
-            "  Probability range is very narrow (%.3f). "
-            "Model may be outputting near-random scores. "
-            "Consider running with --force-no-derivatives.",
+            "  Narrow probability range (%.3f) — model likely confused by drifted features. "
+            "Re-run Phase 4 after drift flag is written.",
             prob_range,
         )
 
     # ── Paper Trading ──────────────────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("STEP 4: PAPER TRADING SIMULATION")
+    print("STEP 5: PAPER TRADING SIMULATION")
     print("=" * 60)
 
     trader = PaperTrader(
@@ -182,10 +191,11 @@ def main():
 
     # ── Results ────────────────────────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("STEP 5: RESULTS")
+    print("STEP 6: RESULTS")
     print("=" * 60)
 
-    print(f"\n  FEATURE MODE: {'WITH derivatives' if use_derivatives else 'BASE only (derivatives disabled due to drift)'}")
+    trained_with_deriv = len(inference_features) > len(MOMENTUM_BASE_FEATURES)
+    print(f"\n  MODEL TRAINED WITH: {'full features (base + derivatives)' if trained_with_deriv else 'base features only'}")
     print(f"\n  PERFORMANCE METRICS:")
     print(f"    Total Return:     {result.total_return*100:+.2f}%")
     print(f"    Sharpe Ratio:     {result.sharpe_ratio:.2f}")
@@ -213,7 +223,7 @@ def main():
 
     # ── Governance Validation ──────────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("STEP 6: GOVERNANCE VALIDATION")
+    print("STEP 7: GOVERNANCE VALIDATION")
     print("=" * 60)
 
     trending_down_trades = [t for t in result.trades if t.regime == 'trending_down']
@@ -221,15 +231,9 @@ def main():
     print(f"  Max Drawdown: {result.max_drawdown*100:.2f}% (target: < 5%)")
     print(f"  Sharpe Ratio: {result.sharpe_ratio:.2f} (target: > 0.5)")
 
-    if result.total_trades == 0:
-        print("\n  NOTE: Zero trades executed. Possible causes:")
-        print("    - Calibrated probabilities below adaptive thresholds")
-        print("    - Risk model blocking all bars as HIGH_RISK or NO_TRADE")
-        print("    - Try running with --force-no-derivatives if drift is present")
-
     # ── Final verdict ──────────────────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("STEP 7: SYSTEM VERDICT")
+    print("STEP 8: SYSTEM VERDICT")
     print("=" * 60)
 
     passed = (
@@ -238,24 +242,25 @@ def main():
         and len(trending_down_trades) == 0
     )
     if passed:
-        print("  [PASS] System meets governance targets. Ready for live paper trading.")
+        print("  [PASS] System meets governance targets.")
     else:
         reasons = []
         if result.sharpe_ratio < 0.5:
             reasons.append(f"Sharpe {result.sharpe_ratio:.2f} < 0.5")
         if result.max_drawdown < -0.05:
-            reasons.append(f"MaxDD {result.max_drawdown*100:.1f}% > -5%")
+            reasons.append(f"MaxDD {result.max_drawdown*100:.1f}% worse than -5%")
         if trending_down_trades:
             reasons.append(f"{len(trending_down_trades)} trades in trending_down")
-        print(f"  [FAIL] Does not meet targets: {', '.join(reasons)}")
-        if not use_derivatives:
-            print("  Derivatives already disabled. Next step: review momentum labeler or feature set.")
-        else:
-            print("  Try re-running with: python run_phase5.py --force-no-derivatives")
+        print(f"  [FAIL] {', '.join(reasons)}")
+
+        if drifted_deriv and trained_with_deriv:
+            print("\n  ROOT CAUSE: Model trained with drifted derivatives features.")
+            print("  ACTION: Re-run Phase 4 — derivatives flag is now written, it will train base-only.")
+        elif not trained_with_deriv:
+            print("\n  Model already base-only. Next step: review feature quality or label horizon.")
 
     print("\n" + "#" * 60)
     print("#  PHASE 5 COMPLETE")
-    print("#  Policy Engine validated against test set")
     print("#" * 60)
 
 
