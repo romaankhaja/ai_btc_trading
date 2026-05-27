@@ -1,70 +1,31 @@
 {
-  "total_trades": 3,
-  "win_rate": 0.0,
-  "sharpe_ratio": -4.249389069441646,
-  "max_drawdown": -0.04124963184059161,
-  "total_pnl": -412.4963184059149,
-  "avg_trade_pnl": -137.49877280197163,
-  "ece_by_model": {
-    "trending_low_vol": 0.01754475522925802,
-    "trending_high_vol": 0.0006192889661778256,
-    "sideways_low_vol": 9.52148468980063e-06,
-    "crash_mode": 0.00017517982336416583
-  },
-  "circuit_breaker_activations": 2,
-  "signal_distribution": {
-    "total_bars": 5238,
-    "long_signals": 221,
-    "short_signals": 289,
-    "no_trade": 4728,
-    "long_pct": 4.219167621229477,
-    "short_pct": 5.517373043146239,
-    "no_trade_pct": 90.26345933562429,
-    "by_regime": {
-      "crash_mode": {
-        "bars": 811,
-        "long_signals": 0,
-        "short_signals": 0,
-        "no_trade": 811,
-        "long_pct": 0.0,
-        "short_pct": 0.0,
-        "no_trade_pct": 100.0
-      },
-      "trending_high_vol": {
-        "bars": 1627,
-        "long_signals": 0,
-        "short_signals": 0,
-        "no_trade": 1627,
-        "long_pct": 0.0,
-        "short_pct": 0.0,
-        "no_trade_pct": 100.0
-      },
-      "trending_low_vol": {
-        "bars": 1564,
-        "long_signals": 0,
-        "short_signals": 0,
-        "no_trade": 1564,
-        "long_pct": 0.0,
-        "short_pct": 0.0,
-        "no_trade_pct": 100.0
-      },
-      "sideways_low_vol": {
-        "bars": 1236,
-        "long_signals": 221,
-        "short_signals": 289,
-        "no_trade": 726,
-        "long_pct": 17.880258899676377,
-        "short_pct": 23.381877022653722,
-        "no_trade_pct": 58.7378640776699
-      }
+  "total_trades": 7,
+  "win_rate": 0.2857142857142857,
+  "sharpe_ratio": -0.6398495898729006,
+  "sortino_ratio": -0.31977946117794864,
+  "max_drawdown": -0.043864453888408685,
+  "total_pnl": -111.89010941088067,
+  "total_return": -0.011189010941088054,
+  "avg_rr_realized": 2.013832440362642,
+  "regime_performance": {
+    "trending_up": {
+      "trades": 1,
+      "pnl": 230.28986331151145,
+      "wins": 1
+    },
+    "mixed": {
+      "trades": 6,
+      "pnl": -342.1799727223921,
+      "wins": 1
     }
   },
-  "regime_override_count": 0,
   "skip_reason_breakdown": {
-    "HARD_BLOCK": 149,
-    "ADAPTIVE_THRESHOLD": 219,
-    "DRAWDOWN_BLOCK": 4863
+    "HARD_BLOCK": 4738,
+    "ADAPTIVE_THRESHOLD": 89,
+    "CONFIDENCE_GATE": 140,
+    "TREND_GATE": 11,
+    "RR_GATE": 6,
+    "DRAWDOWN_BLOCK": 48
   },
-  "total_signals_generated": 510,
-  "signals_converted_to_trades": 3
+  "circuit_breaker_activations": 2
 }

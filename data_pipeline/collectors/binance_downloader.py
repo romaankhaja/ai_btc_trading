@@ -337,9 +337,9 @@ class BinanceDownloader:
         all_results = {}
 
         for symbol in self.symbols:
-            print(f"\n{'─' * 40}")
+            print(f"\n{'-' * 40}")
             print(f"Symbol: {symbol}")
-            print(f"{'─' * 40}")
+            print(f"{'-' * 40}")
 
             symbol_results = {}
             for tf in self.timeframes:

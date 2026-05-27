@@ -17,7 +17,13 @@ from inference.threshold_engine import (
     AdaptiveThresholdEngine,
     fit_threshold_engine,
 )
-from training.config import REGIME_KELLY_MULTIPLIER, MIN_CONFIDENCE
+from training.config import (
+    MAX_RISK_PERCENT,
+    MIN_CONFIDENCE,
+    MOMENTUM_SL_PCT,
+    MOMENTUM_TP_PCT,
+    REGIME_KELLY_MULTIPLIER,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +96,8 @@ class TradeDecisionEngine:
         decision.regime = outputs.regime_label
         decision.regime_confidence = outputs.regime_confidence
         decision.raw_regime = outputs.regime_label
+        direction = outputs.predicted_direction
+        confidence = outputs.meta_probability if direction == 1 else 1.0 - outputs.meta_probability
 
         atr = features.get('atr_14', 0.0)
         atr_mean = features.get('atr_20bar_mean', 0.0)
@@ -111,28 +119,26 @@ class TradeDecisionEngine:
             threshold_state = self.threshold_engine.get_threshold(
                 regime_label=decision.regime,
                 volatility_percentile=features.get('volatility_percentile', 0.5),
-                strategy_health_score=features.get('strategy_health_score', 1.0),
                 regime_confidence=decision.regime_confidence,
             )
             effective_threshold = threshold_state.adjusted_threshold
-            if outputs.meta_probability < effective_threshold:
+            if confidence < effective_threshold:
                 decision.action = 'NO_TRADE'
                 decision.block_reasons.append(
-                    f'ADAPTIVE_THRESHOLD: prob={outputs.meta_probability:.3f} '
+                    f'ADAPTIVE_THRESHOLD: confidence={confidence:.3f} '
                     f'< threshold={effective_threshold:.3f} '
                     f'(regime={decision.regime})'
                 )
                 return decision
         else:
-            if outputs.meta_probability < MIN_CONFIDENCE:
+            if confidence < MIN_CONFIDENCE:
                 decision.action = 'NO_TRADE'
                 decision.block_reasons.append(
-                    f'THRESHOLD_FALLBACK: prob={outputs.meta_probability:.3f} < {MIN_CONFIDENCE:.2f}'
+                    f'CONFIDENCE_GATE: {confidence:.3f} < {MIN_CONFIDENCE}'
                 )
                 return decision
 
         # 4. Action Direction
-        direction = outputs.predicted_direction
         decision.action = 'LONG' if direction == 1 else 'SHORT'
 
         # 5. Kelly Sizing
@@ -145,13 +151,16 @@ class TradeDecisionEngine:
                 equity=equity,
                 entry_price=entry_price,
                 direction=direction,
-                meta_probability=outputs.meta_probability,
+                meta_probability=confidence,
                 predicted_volatility=pred_vol,
                 atr_14=atr,
+                sl_pct=MOMENTUM_SL_PCT,
+                tp_pct=MOMENTUM_TP_PCT,
                 sl_multiplier=policy.sl_multiplier,
                 tp_multiplier=policy.tp_multiplier,
                 regime_risk_modifier=policy.risk_percent, # Using Policy's modified risk as a scalar
                 regime_kelly_multiplier=REGIME_KELLY_MULTIPLIER.get(decision.regime, 1.0),
+                max_risk_percent=MAX_RISK_PERCENT,
                 kelly_fraction=getattr(outputs, 'kelly_fraction', 0.5),
             )
             
@@ -162,6 +171,12 @@ class TradeDecisionEngine:
             decision.tp_price = sizing.tp_price
             decision.reward_risk_ratio = sizing.reward_risk_ratio
             decision.position_size_usd = sizing.position_size_usd
+            self.policy.validate_trade_levels(
+                entry_estimate=entry_price,
+                direction=direction,
+                sl_price=decision.sl_price,
+                tp_price=decision.tp_price,
+            )
             
             # Additional sanity check on Kelly sizing
             if sizing.risk_percent <= 0:

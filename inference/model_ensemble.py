@@ -110,15 +110,23 @@ class ModelEnsemble:
         x_mom = np.array([[features.get(f, 0.0) for f in MOMENTUM_FEATURES]])
         mom_proba = self.momentum_model.predict_proba(x_mom)
         if getattr(mom_proba, "ndim", 1) == 2:
-            out.meta_probability = float(mom_proba[0, 1])
+            raw_prob = float(mom_proba[0, 1])
         else:
-            out.meta_probability = float(mom_proba[0] if np.ndim(mom_proba) else mom_proba)
-        out.predicted_direction = 1 if out.meta_probability >= 0.5 else -1
-        p = np.clip(out.meta_probability, 1e-6, 1 - 1e-6)
+            raw_prob = float(mom_proba[0] if np.ndim(mom_proba) else mom_proba)
+
+        # Direction is now fully controlled by the ML model:
+        #   raw_prob >= 0.5  → LONG  (model says 'success for upward move')
+        #   raw_prob <  0.5  → SHORT (model says market more likely to fall;
+        #                             confidence = 1 - raw_prob)
+        # EMA slope is still a model FEATURE, but NEVER overrides direction.
+        out.meta_probability = raw_prob
+        out.predicted_direction = 1 if raw_prob >= 0.5 else -1
+
+        p = np.clip(raw_prob, 1e-6, 1 - 1e-6)
         out.meta_margin = float(np.log(p / (1.0 - p)))
         out.kelly_fraction = float(getattr(self.momentum_model, 'kelly_fraction', 0.5))
 
-        features['momentum_probability'] = out.meta_probability
+        features['momentum_probability'] = raw_prob
         
         # 4. Volatility
         x_vol = np.array([[features.get(f, 0.0) for f in VOLATILITY_FEATURES]])

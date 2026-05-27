@@ -37,15 +37,15 @@ def train_behavioral(train_df, val_df, test_df, output_dir):
     X_train = valid_train[BEHAVIORAL_FEATURES].fillna(0)
     y_train = valid_train[LABEL_BEHAVIORAL]
     
-    # Train Isolation Forest
-    # Contamination set to 0.01 since anomaly rate is ~0.8%
+    # Match expected anomaly prevalence to the market-stress training labels.
+    contamination = float(np.clip(y_train.mean(), 0.001, 0.20))
     model = IsolationForest(
-        n_estimators=100, 
-        contamination=0.01, 
+        n_estimators=100,
+        contamination=contamination,
         random_state=42
     )
     
-    logger.info("Training Isolation Forest...")
+    logger.info(f"Training Isolation Forest (contamination={contamination:.4f})...")
     model.fit(X_train)
     
     # ---- Evaluate on Val/Test ----

@@ -17,8 +17,8 @@ MOMENTUM_FEATURES = [
     'trend_alignment_score'
 ]
 
-# Meta-model features: primary signal plus orthogonal volatility, liquidity,
-# and strategy-health context. Derivatives inputs are intentionally excluded
+# Meta-model features: primary signal plus orthogonal volatility and liquidity
+# context. Derivatives inputs are intentionally excluded
 # until live ingestion is wired end-to-end.
 META_FEATURES = MOMENTUM_FEATURES + [
     'atr_14', 'realized_volatility', 'atr_velocity',
@@ -42,16 +42,14 @@ RISK_FEATURES = [
 ]
 
 BEHAVIORAL_FEATURES = [
-    'oversized_trade_score',
-    'overtrading_score',
-    'strategy_recent_accuracy',
-    'strategy_avg_rr',
-    'last_5_trade_winrate',
-    'strategy_health_score',
-    'revenge_trade_score',
-    'discipline_score',
-    'panic_exit_score',
-    'fomo_score'
+    'volatility_percentile',
+    'atr_expansion_ratio',
+    'volume_spike_score',
+    'amihud_illiquidity',
+    'trade_imbalance',
+    'bb_width_percentile',
+    'realized_volatility',
+    'volume_ratio',
 ]
 
 # ============================================================
@@ -112,9 +110,15 @@ THRESHOLDS = {
     'backtest_sharpe_min': 0.5,
 }
 
-# Live execution thresholds and regime routing rules.
-MIN_CONFIDENCE = 0.55
-MAX_HOLDING_BARS = 12
+# Live execution thresholds and regime routing rules. Execution uses the same
+# barrier contract as the momentum label so evaluation measures the trained task.
+MOMENTUM_HORIZON_BARS = 64
+MOMENTUM_TP_PCT = 0.015
+MOMENTUM_SL_PCT = 0.006
+EXPECTED_RR_GATE = MOMENTUM_TP_PCT / MOMENTUM_SL_PCT
+MAX_RISK_PERCENT = 1.0
+MIN_CONFIDENCE = 0.53
+MAX_HOLDING_BARS = MOMENTUM_HORIZON_BARS
 REGIME_MAX_BARS = {
     'trending_up': MAX_HOLDING_BARS,
     'trending_down': MAX_HOLDING_BARS,
@@ -127,7 +131,8 @@ REGIME_KELLY_MULTIPLIER = {
     'mixed': 0.3,
     'ranging': 0.1,
 }
-NO_TRADE_REGIMES = ['trending_down']
+# Only block ranging; trending_down remains tradable for ML-driven SHORTs.
+NO_TRADE_REGIMES = ['ranging']
 
 # Critical features that should trigger retraining quickly when they drift.
 CRITICAL_FEATURES = [

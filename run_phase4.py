@@ -91,7 +91,7 @@ def main():
     # 5. Behavioral Model
     mlflow.set_experiment(MLFLOW_EXPERIMENT_BEHAVIORAL)
     with mlflow.start_run(run_name="iforest_v1"):
-        mlflow.log_params({"contamination": 0.01})
+        mlflow.log_params({"contamination": "training_label_rate"})
         beh_model, beh_val, beh_test = train_behavioral(train_df, val_df, test_df, out_dir / "behavioral")
         mlflow.log_metrics({"val_" + k: v for k, v in beh_val.items()})
         mlflow.log_metrics({"test_" + k: v for k, v in beh_test.items()})

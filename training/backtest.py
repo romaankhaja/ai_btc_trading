@@ -9,7 +9,12 @@ import logging
 import numpy as np
 import pandas as pd
 
-from training.config import THRESHOLDS
+from training.config import (
+    MOMENTUM_SL_PCT,
+    MOMENTUM_TP_PCT,
+    NO_TRADE_REGIMES,
+    THRESHOLDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +26,8 @@ def run_backtest_validation(test_df):
     Logic:
       - If Risk == NO_TRADE or Behavioral == Anomaly: skip
       - Else if Momentum > 0.6:
-          - LONG if ema_20_slope > 0
-          - SHORT if ema_20_slope < 0
-          - PnL based on forward 1-period close-to-close return
+          - Treat as a candidate setup
+          - PnL scored against the same TP/SL outcome as the momentum target
     """
     logger.info("=" * 50)
     logger.info("BACKTEST VALIDATION (TEST SET)")
@@ -45,13 +49,16 @@ def run_backtest_validation(test_df):
     trade_mask = (
         (df['label_risk'] != 'NO_TRADE') & 
         (df['label_behavioral'] == 0) & 
-        (df['momentum_probability'] >= THRESHOLDS['momentum_action_threshold'])
+        (df['momentum_probability'] >= THRESHOLDS['momentum_action_threshold']) &
+        (~df['regime_label'].isin(NO_TRADE_REGIMES))
     )
     
-    direction = np.where(df['ema_20_slope'] > 0, 1, -1)
-    returns = df['close'].pct_change().shift(-1).fillna(0)
-    
-    pnl = np.where(trade_mask, direction * returns, 0)
+    target_return = np.where(
+        df['label_momentum'] == 1,
+        MOMENTUM_TP_PCT,
+        -MOMENTUM_SL_PCT,
+    )
+    pnl = np.where(trade_mask, target_return, 0)
     df['strategy_return'] = pnl
     df['equity'] = (1 + df['strategy_return']).cumprod()
     

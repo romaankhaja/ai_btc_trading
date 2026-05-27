@@ -39,9 +39,18 @@ class PolicyEngine:
     4. Final authorization
     """
 
-    STRATEGY_DISABLE_THRESHOLD = 0.25
     ILLIQUIDITY_BLOCK_THRESHOLD = 0.15
     SL_COOLDOWN_BARS = 12
+
+    @staticmethod
+    def validate_trade_levels(entry_estimate: float, direction: int, sl_price: float, tp_price: float):
+        """Validate that trade barriers are oriented correctly for the chosen direction."""
+        if direction == -1:
+            assert sl_price > entry_estimate
+            assert tp_price < entry_estimate
+        elif direction == 1:
+            assert sl_price < entry_estimate
+            assert tp_price > entry_estimate
 
     def evaluate(self, model_outputs: ModelOutputs, features: dict) -> PolicyDecision:
         """
@@ -72,67 +81,11 @@ class PolicyEngine:
             )
             return decision
 
-        health = features.get('strategy_health_score', 1.0)
-        if health < self.STRATEGY_DISABLE_THRESHOLD:
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.block_reasons.append(
-                f'HARD_BLOCK: strategy_health={health:.2f} < {self.STRATEGY_DISABLE_THRESHOLD}'
-            )
-            return decision
-        if health < 0.30:
-            decision.risk_percent *= 0.5
-            decision.warnings.append(
-                f'SOFT: strategy_health={health:.2f} < 0.30 -> 50% risk reduction'
-            )
-
         if features.get('cusum_break', 0) == 1:
             decision.allow_trade = False
             decision.risk_percent = 0.0
             decision.block_reasons.append('HARD_BLOCK: CUSUM structural break signal is active')
             return decision
-
-        discipline = features.get('discipline_score', 1.0)
-        if discipline < 0.25:
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.block_reasons.append(
-                f'HARD_BLOCK: discipline_score={discipline:.2f} < 0.25'
-            )
-            return decision
-        if discipline < 0.5:
-            decision.risk_percent *= 0.5
-            decision.warnings.append(
-                f'SOFT: discipline_score={discipline:.2f} < 0.50 -> 50% risk reduction'
-            )
-
-        aggression = features.get('revenge_trade_score', 0.0)
-        overtrading = features.get('overtrading_score', 0.0)
-        if aggression > 0.85:
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.block_reasons.append(
-                f'HARD_BLOCK: revenge_trade_score={aggression:.2f} > 0.85 (Revenge trading detected)'
-            )
-            return decision
-        if aggression > 0.70:
-            decision.risk_percent *= 0.5
-            decision.warnings.append(
-                f'SOFT: revenge_trade_score={aggression:.2f} > 0.70 -> 50% risk reduction'
-            )
-
-        if overtrading > 0.85:
-            decision.allow_trade = False
-            decision.risk_percent = 0.0
-            decision.block_reasons.append(
-                f'HARD_BLOCK: overtrading_score={overtrading:.2f} > 0.85 (Overtrading detected)'
-            )
-            return decision
-        if overtrading > 0.70:
-            decision.risk_percent *= 0.75
-            decision.warnings.append(
-                f'SOFT: overtrading_score={overtrading:.2f} > 0.70 -> 25% risk reduction'
-            )
 
         # Consecutive SL circuit breaker
         sl_streak = int(features.get('consecutive_sl_count', 0))
@@ -213,11 +166,6 @@ class PolicyEngine:
         elif model_outputs.risk_level == 'MEDIUM_RISK':
             decision.risk_percent *= 0.75
             decision.warnings.append('SOFT: risk_model=MEDIUM_RISK -> 25% risk reduction')
-
-        oversized = features.get('oversized_trade_score', 0.0)
-        if oversized > 0.5:
-            decision.risk_percent = min(decision.risk_percent, 0.5)
-            decision.warnings.append(f'SOFT: oversized_trade_score={oversized:.2f} -> capped risk')
 
         decision.risk_percent = max(0.1, min(1.5, decision.risk_percent))
         assert model_outputs.regime_label not in NO_TRADE_REGIMES or not decision.allow_trade, (

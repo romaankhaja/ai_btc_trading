@@ -1,3 +1,3 @@
 timestamp,event_type,detail,consecutive_sl_count,cooldown_remaining_bars,would_have_overridden
-2026-03-28 08:00:00+00:00,cooldown,"exit_reason=SL_HIT, pnl=-169.92",2,12,
-2026-03-28 08:00:00+00:00,drawdown_block,"reason=DRAWDOWN_BLOCK, session_drawdown=4.12%",2,12,
+2026-03-29 17:15:00+00:00,cooldown,"exit_reason=SL_HIT, pnl=-120.32",2,12,
+2026-03-30 11:15:00+00:00,drawdown_block,"reason=DRAWDOWN_BLOCK, session_drawdown=4.39%",3,12,

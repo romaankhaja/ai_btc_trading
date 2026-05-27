@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from inference.model_ensemble import ModelEnsemble
-from training.config import MOMENTUM_FEATURES
+from training.config import MIN_CONFIDENCE, MOMENTUM_FEATURES, MOMENTUM_HORIZON_BARS, NO_TRADE_REGIMES
 from training.evaluate import get_feature_importance
 
 
@@ -38,8 +38,8 @@ def main():
     print("\nRunning inference...")
     results = []
     
-    # We need 16 bars forward to match the current momentum horizon.
-    horizon = 16
+    # Match the configured momentum horizon used in labeling and execution.
+    horizon = MOMENTUM_HORIZON_BARS
     close_col = 'mark_close' if 'mark_close' in test_df.columns else 'close'
     closes = test_df[close_col].values
     timestamps = test_df['open_time'].values if 'open_time' in test_df.columns else test_df.index.values
@@ -78,7 +78,10 @@ def main():
             'actual_price_change_16bars': actual_price_change,
             'was_prediction_correct': correct,
             'regime': output.regime_label,
-            'meta_probability': output.meta_probability
+            'meta_probability': output.meta_probability,
+            'directional_confidence': (
+                output.meta_probability if predicted_dir == 1 else 1.0 - output.meta_probability
+            ),
         })
 
     res_df = pd.DataFrame(results)
@@ -88,6 +91,16 @@ def main():
     print(f"\n--- RAW DIRECTIONAL ACCURACY OVERALL ---")
     print(f"Accuracy: {acc_overall:.2%}")
     print(f"Total evaluated bars: {len(res_df)}")
+
+    actionable = res_df[
+        (res_df['directional_confidence'] >= MIN_CONFIDENCE)
+        & (~res_df['regime'].isin(NO_TRADE_REGIMES))
+    ]
+    if not actionable.empty:
+        action_acc = actionable['was_prediction_correct'].mean()
+        print(f"\n--- ACTIONABLE DIRECTIONAL ACCURACY ---")
+        print(f"Accuracy: {action_acc:.2%}")
+        print(f"Bars above confidence and regime gates: {len(actionable)}")
 
     # Accuracy per regime
     print(f"\n--- RAW DIRECTIONAL ACCURACY PER REGIME ---")

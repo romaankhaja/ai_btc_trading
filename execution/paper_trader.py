@@ -7,6 +7,7 @@ slippage, fees, and order tracking.
 """
 
 import logging
+import json
 import numpy as np
 import pandas as pd
 from collections import deque
@@ -16,8 +17,11 @@ from pathlib import Path
 
 from inference.trade_decision import TradeDecisionEngine, TradeDecision
 from training.config import (
+    EXPECTED_RR_GATE,
     MIN_CONFIDENCE,
     MAX_HOLDING_BARS,
+    MOMENTUM_SL_PCT,
+    MOMENTUM_TP_PCT,
     REGIME_MAX_BARS,
     NO_TRADE_REGIMES,
 )
@@ -185,21 +189,6 @@ class PaperTrader:
             
             # ---- Check open trade for SL/TP hit ----
             if open_trade is not None:
-                # 0. Trailing Stop-Loss Logic (Fix 10)
-                # When price moves in favor of the trade by more than 1.5 ATR,
-                # set the stop-loss to entry + 0.5 ATR (for Long) or entry - 0.5 ATR (for Short)
-                atr_ent = open_trade.atr_at_entry
-                if open_trade.direction == 1:  # LONG
-                    if row['high'] >= open_trade.entry_price + 1.5 * atr_ent:
-                        new_sl = open_trade.entry_price + 0.5 * atr_ent
-                        if new_sl > open_trade.sl_price:
-                            open_trade.sl_price = new_sl
-                else:  # SHORT
-                    if row['low'] <= open_trade.entry_price - 1.5 * atr_ent:
-                        new_sl = open_trade.entry_price - 0.5 * atr_ent
-                        if new_sl < open_trade.sl_price:
-                            open_trade.sl_price = new_sl
-                
                 hit = False
                 target_price = 0.0
                 
@@ -251,62 +240,34 @@ class PaperTrader:
                     bars_held = 0
                 else:
                     bars_held += 1
-                    # Mid-trade momentum reversal check every 4 bars.
-                    if bars_held % 4 == 0:
-                        rsi_velocity = float(row.get('rsi_velocity', 0.0))
-                        near_entry = abs(current_close - open_trade.entry_price) / open_trade.entry_price <= 0.001 if open_trade.entry_price > 0 else False
-                        rsi_flip = (
-                            (open_trade.direction == 1 and rsi_velocity < 0)
-                            or (open_trade.direction == -1 and rsi_velocity > 0)
-                        )
-                        if rsi_flip and near_entry:
-                            open_trade.exit_reason = 'MOMENTUM_REVERSAL'
-                            exit_slip = 0.05 * atr
-                            open_trade.exit_price = current_close - open_trade.direction * exit_slip
-                            entry_fee = open_trade.entry_price * self.FEE_PCT
-                            exit_fee = open_trade.exit_price * self.FEE_PCT
-                            raw_pnl = open_trade.direction * (open_trade.exit_price - open_trade.entry_price)
-                            pnl_per_unit = raw_pnl - entry_fee - exit_fee
-                            units = open_trade.position_size_usd / open_trade.entry_price if open_trade.entry_price > 0 else 0
-                            open_trade.pnl = pnl_per_unit * units
-                            open_trade.exit_time = current_time
-                            equity += open_trade.pnl
-                            all_returns.append(open_trade.pnl / peak_equity if peak_equity > 0 else 0)
-                            result.trades.append(open_trade)
-                            _update_circuit_state(open_trade.exit_reason, open_trade.pnl, current_time, open_trade)
-                            features['consecutive_sl_count'] = consecutive_sl_count
-                            features['sl_cooldown_bars_remaining'] = sl_cooldown_remaining_bars
-                            open_trade = None
-                            bars_held = 0
-                        else:
-                            # Time barrier by regime-specific maximum bars.
-                            current_max_bars = REGIME_MAX_BARS.get(open_trade.regime, MAX_HOLDING_BARS)
-                            if bars_held >= current_max_bars:
-                                open_trade.exit_reason = 'TIME_BARRIER'
-                                
-                                # Apply slippage on exit close price (5% of ATR)
-                                exit_slip = 0.05 * atr
-                                open_trade.exit_price = current_close - open_trade.direction * exit_slip
-                                
-                                entry_fee = open_trade.entry_price * self.FEE_PCT
-                                exit_fee = open_trade.exit_price * self.FEE_PCT
-                                
-                                raw_pnl = open_trade.direction * (open_trade.exit_price - open_trade.entry_price)
-                                pnl_per_unit = raw_pnl - entry_fee - exit_fee
-                                
-                                units = open_trade.position_size_usd / open_trade.entry_price if open_trade.entry_price > 0 else 0
-                                open_trade.pnl = pnl_per_unit * units
-                                open_trade.exit_time = current_time
-                                
-                                equity += open_trade.pnl
-                                all_returns.append(open_trade.pnl / peak_equity if peak_equity > 0 else 0)
-                                
-                                result.trades.append(open_trade)
-                                _update_circuit_state(open_trade.exit_reason, open_trade.pnl, current_time, open_trade)
-                                features['consecutive_sl_count'] = consecutive_sl_count
-                                features['sl_cooldown_bars_remaining'] = sl_cooldown_remaining_bars
-                                open_trade = None
-                                bars_held = 0
+                    # Hold through the same horizon used by the training label.
+                    current_max_bars = REGIME_MAX_BARS.get(open_trade.regime, MAX_HOLDING_BARS)
+                    if bars_held >= current_max_bars:
+                        open_trade.exit_reason = 'TIME_BARRIER'
+                        
+                        # Apply slippage on exit close price (5% of ATR)
+                        exit_slip = 0.05 * atr
+                        open_trade.exit_price = current_close - open_trade.direction * exit_slip
+                        
+                        entry_fee = open_trade.entry_price * self.FEE_PCT
+                        exit_fee = open_trade.exit_price * self.FEE_PCT
+                        
+                        raw_pnl = open_trade.direction * (open_trade.exit_price - open_trade.entry_price)
+                        pnl_per_unit = raw_pnl - entry_fee - exit_fee
+                        
+                        units = open_trade.position_size_usd / open_trade.entry_price if open_trade.entry_price > 0 else 0
+                        open_trade.pnl = pnl_per_unit * units
+                        open_trade.exit_time = current_time
+                        
+                        equity += open_trade.pnl
+                        all_returns.append(open_trade.pnl / peak_equity if peak_equity > 0 else 0)
+                        
+                        result.trades.append(open_trade)
+                        _update_circuit_state(open_trade.exit_reason, open_trade.pnl, current_time, open_trade)
+                        features['consecutive_sl_count'] = consecutive_sl_count
+                        features['sl_cooldown_bars_remaining'] = sl_cooldown_remaining_bars
+                        open_trade = None
+                        bars_held = 0
             
             # ---- Make new decision if no open trade ----
             if open_trade is None:
@@ -341,36 +302,38 @@ class PaperTrader:
                             allow_entry = False
                             skip_reason = f'NO_TRADE_REGIME: {current_regime}'
 
-                        if allow_entry and decision.meta_probability < MIN_CONFIDENCE:
+                        trade_confidence = (
+                            decision.meta_probability
+                            if decision.action == 'LONG'
+                            else 1.0 - decision.meta_probability
+                        )
+
+                        if allow_entry and trade_confidence < MIN_CONFIDENCE:
                             allow_entry = False
                             skip_reason = (
-                                f'CONFIDENCE_GATE: confidence={decision.meta_probability:.3f} < {MIN_CONFIDENCE:.2f}'
+                                f'CONFIDENCE_GATE: confidence={trade_confidence:.3f} < {MIN_CONFIDENCE:.2f}'
                             )
 
                         if allow_entry:
                             expected_rr = float(decision.reward_risk_ratio)
-                            if expected_rr < 1.3:
+                            if expected_rr < EXPECTED_RR_GATE:
                                 allow_entry = False
-                                skip_reason = f'RR_GATE: expected_rr={expected_rr:.2f} < 1.30'
+                                skip_reason = (
+                                    f'RR_GATE: expected_rr={expected_rr:.2f} '
+                                    f'< {EXPECTED_RR_GATE:.2f}'
+                                )
 
                         if allow_entry and current_regime in ('trending_up', 'trending_down'):
-                            ema_20_slope = float(row.get('ema_20_slope', 0.0))
                             trend_alignment = float(row.get('trend_alignment_score', 0.0))
-                            trade_dir = 1 if decision.action == 'LONG' else -1
-                            if trend_alignment <= 0.6:
+                            if decision.action == 'LONG' and trend_alignment < 2:
                                 allow_entry = False
                                 skip_reason = (
-                                    f'TREND_GATE: trend_alignment_score={trend_alignment:.2f} <= 0.60'
+                                    f'TREND_GATE: trend_alignment_score={trend_alignment:.2f} < 2.00 for LONG'
                                 )
-                            elif trade_dir == 1 and ema_20_slope <= 0:
+                            elif decision.action == 'SHORT' and trend_alignment > -2:
                                 allow_entry = False
                                 skip_reason = (
-                                    f'TREND_GATE: ema_20_slope={ema_20_slope:.4f} not supportive for LONG'
-                                )
-                            elif trade_dir == -1 and ema_20_slope >= 0:
-                                allow_entry = False
-                                skip_reason = (
-                                    f'TREND_GATE: ema_20_slope={ema_20_slope:.4f} not supportive for SHORT'
+                                    f'TREND_GATE: trend_alignment_score={trend_alignment:.2f} > -2.00 for SHORT'
                                 )
 
                     if allow_entry:
@@ -379,17 +342,25 @@ class PaperTrader:
                         # Dynamic entry slippage: 5% of ATR (Fix 10)
                         entry_slip = 0.05 * atr
                         entry_with_slip = current_close + direction * entry_slip
+                        sl_distance = entry_with_slip * MOMENTUM_SL_PCT
+                        tp_distance = entry_with_slip * MOMENTUM_TP_PCT
+                        if direction == 1:
+                            sl_price = entry_with_slip * (1.0 - MOMENTUM_SL_PCT)
+                            tp_price = entry_with_slip * (1.0 + MOMENTUM_TP_PCT)
+                        else:
+                            sl_price = entry_with_slip * (1.0 + MOMENTUM_SL_PCT)
+                            tp_price = entry_with_slip * (1.0 - MOMENTUM_TP_PCT)
 
                         open_trade = Trade(
                             entry_time=current_time,
                             entry_price=entry_with_slip,
                             direction=direction,
-                            sl_price=decision.sl_price,
-                            tp_price=decision.tp_price,
+                            sl_price=sl_price,
+                            tp_price=tp_price,
                             risk_percent=decision.risk_percent,
                             position_size_usd=decision.position_size_usd,
                             regime=decision.regime,
-                            confidence=decision.meta_probability,
+                            confidence=trade_confidence,
                             atr_at_entry=atr,
                             atr_ratio_at_entry=decision.atr_ratio,
                             raw_regime=decision.raw_regime,
@@ -402,7 +373,7 @@ class PaperTrader:
                                 'timestamp': current_time,
                                 'action': decision.action,
                                 'regime': decision.regime,
-                                'confidence': decision.meta_probability,
+                                'confidence': trade_confidence,
                                 'meta_probability': decision.meta_probability,
                                 'zscore': 0.0,
                                 'expected_rr': float(decision.reward_risk_ratio),
@@ -442,11 +413,15 @@ class PaperTrader:
         
         # ---- Close any remaining open trade at last close ----
         if open_trade is not None:
-            open_trade.exit_price = df.iloc[-1]['close']
+            final_atr = float(df.iloc[-1].get('atr_14', 0.0))
+            exit_slip = 0.05 * final_atr
+            open_trade.exit_price = df.iloc[-1]['close'] - open_trade.direction * exit_slip
             open_trade.exit_reason = 'END_OF_DATA'
             raw_pnl = open_trade.direction * (open_trade.exit_price - open_trade.entry_price)
+            entry_fee = open_trade.entry_price * self.FEE_PCT
+            exit_fee = open_trade.exit_price * self.FEE_PCT
             units = open_trade.position_size_usd / open_trade.entry_price if open_trade.entry_price > 0 else 0
-            open_trade.pnl = raw_pnl * units
+            open_trade.pnl = (raw_pnl - entry_fee - exit_fee) * units
             open_trade.exit_time = df.iloc[-1].get('open_time', pd.Timestamp.now())
             equity += open_trade.pnl
             result.trades.append(open_trade)
@@ -510,5 +485,47 @@ class PaperTrader:
             regime_override_events,
             columns=['timestamp', 'raw_regime', 'overridden_regime', 'atr_ratio', 'reason']
         ).to_csv(results_dir / 'regime_override_log.csv', index=False)
+        pd.DataFrame(
+            [
+                {
+                    'entry_time': trade.entry_time,
+                    'exit_time': trade.exit_time,
+                    'direction': 'LONG' if trade.direction == 1 else 'SHORT',
+                    'entry_price': trade.entry_price,
+                    'exit_price': trade.exit_price,
+                    'position_size_usd': trade.position_size_usd,
+                    'risk_percent': trade.risk_percent,
+                    'sl_price': trade.sl_price,
+                    'tp_price': trade.tp_price,
+                    'atr_at_entry': trade.atr_at_entry,
+                    'pnl': trade.pnl,
+                    'regime': trade.regime,
+                    'confidence': trade.confidence,
+                    'exit_reason': trade.exit_reason,
+                }
+                for trade in result.trades
+            ],
+            columns=[
+                'entry_time', 'exit_time', 'direction', 'entry_price',
+                'exit_price', 'position_size_usd', 'risk_percent',
+                'sl_price', 'tp_price', 'atr_at_entry', 'pnl',
+                'regime', 'confidence', 'exit_reason'
+            ],
+        ).to_csv(results_dir / 'test_trades.csv', index=False)
+        report = {
+            'total_trades': result.total_trades,
+            'win_rate': result.win_rate,
+            'sharpe_ratio': result.sharpe_ratio,
+            'sortino_ratio': result.sortino_ratio,
+            'max_drawdown': result.max_drawdown,
+            'total_pnl': float(sum(trade.pnl for trade in result.trades)),
+            'total_return': result.total_return,
+            'avg_rr_realized': result.avg_rr_realized,
+            'regime_performance': result.regime_performance,
+            'skip_reason_breakdown': result.block_reasons_summary,
+            'circuit_breaker_activations': result.circuit_breaker_activations,
+        }
+        with open(results_dir / 'performance_report.json', 'w', encoding='utf-8') as report_file:
+            json.dump(report, report_file, indent=2)
         
         return result

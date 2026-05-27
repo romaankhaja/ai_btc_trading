@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from training.config import MOMENTUM_SL_PCT, MOMENTUM_TP_PCT
+
 logger = logging.getLogger(__name__)
 
 def apply_triple_barrier(df, t1=12):
@@ -62,51 +64,21 @@ def apply_triple_barrier(df, t1=12):
     closes = df[close_col].values
     highs = df[high_col].values
     lows = df[low_col].values
-    vols = vol.values
     dirs = primary_label
     
-    # Prefer the canonical regime_label. Fall back to regime_state only for
-    # legacy datasets.
-    if 'regime_label' in df.columns:
-        regimes = df['regime_label'].values
-    elif 'regime_state' in df.columns:
-        regimes = pd.Series(df['regime_state']).fillna('mixed').astype(str).values
-    else:
-        regimes = np.full(len(df), 'mixed')
-    
     for i in range(len(df) - t1):
-        regime = regimes[i]
-        
-        # Regime-conditional multipliers
-        if regime == 'trending_up':
-            mult_tp, mult_sl = 3.0, 1.2
-        elif regime == 'trending_down':
-            mult_tp, mult_sl = 3.0, 1.2
-        elif regime == 'ranging':
-            mult_tp, mult_sl = 1.2, 0.8
-        else:
-            # Fallback or default
-            mult_tp, mult_sl = 1.5, 1.0
-            
         if dirs[i] == 0:
             meta_labels[i] = 0.0 # No trade setup
             continue
             
         entry = closes[i]
-        curr_vol = vols[i]
-        
-        # Dynamic barriers based on current volatility
-        tp_dist = curr_vol * mult_tp
-        sl_dist = curr_vol * mult_sl
-        
-        # If volatility is too low or NaN, skip
-        if np.isnan(curr_vol) or curr_vol <= 0:
+        if entry <= 0 or np.isnan(entry):
             meta_labels[i] = 0.0
             continue
             
         if dirs[i] == 1: # Long
-            tp_price = entry + tp_dist
-            sl_price = entry - sl_dist
+            tp_price = entry * (1.0 + MOMENTUM_TP_PCT)
+            sl_price = entry * (1.0 - MOMENTUM_SL_PCT)
             
             success = 0.0
             for j in range(i + 1, i + 1 + t1):
@@ -119,8 +91,8 @@ def apply_triple_barrier(df, t1=12):
             meta_labels[i] = success
             
         elif dirs[i] == -1: # Short
-            tp_price = entry - tp_dist
-            sl_price = entry + sl_dist
+            tp_price = entry * (1.0 - MOMENTUM_TP_PCT)
+            sl_price = entry * (1.0 + MOMENTUM_SL_PCT)
             
             success = 0.0
             for j in range(i + 1, i + 1 + t1):

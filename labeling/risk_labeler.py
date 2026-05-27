@@ -30,20 +30,12 @@ def label_risk_single(row):
     if row.get('amihud_illiquidity', 0) > 0.1:
         score += 2
     
-    # Behavioral conditions
-    if row.get('revenge_trade_score', 0) > 0.6:
-        score += 3
-    if row.get('overtrading_score', 0) > 0.7:
+    # Current market-stress conditions
+    if row.get('volume_spike_score', 0) > 0.9:
         score += 2
-    if row.get('oversized_trade_score', 0) > 0.5:
+    if abs(row.get('trade_imbalance', 0)) > 0.65:
         score += 2
-    if row.get('discipline_score', 1.0) < 0.4:
-        score += 2
-    if row.get('strategy_health_score', 1.0) < 0.4:
-        score += 2
-    if row.get('panic_exit_score', 0.0) > 0.6:
-        score += 1
-    if row.get('fomo_score', 0.0) > 0.6:
+    if row.get('bb_width_percentile', 0) > 0.9:
         score += 1
     
     # Regime conditions

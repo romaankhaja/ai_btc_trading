@@ -3,7 +3,7 @@ Phase 2 Orchestrator — Feature Engineering Pipeline (Efficient Proxy Approach)
 
 Steps:
     1. Compute efficient liquidity proxies (trade imbalance, Amihud illiquidity)
-    2. Run synthetic trade simulation for behavioral features
+    2. Persist market-derived features for modeling
     3. Save final master features dataset
 
 Usage:
@@ -53,19 +53,24 @@ def step_liquidity():
         df.to_parquet(out_path, engine="pyarrow", index=False)
         print(f"  [*] Saved liquidity merged features: {len(df)} rows")
         
-def step_trade_history():
-    """Step 3: Generate Synthetic Trade/Behavioral Features."""
-    from feature_engineering.trade_history import add_trade_history_features
+def step_master_features():
+    """Step 3: Save market-derived features as the modeling dataset."""
+    import pandas as pd
+
     print("\n" + "=" * 60)
-    print("STEP 3: SYNTHETIC TRADE HISTORY & BEHAVIORAL FEATURES")
+    print("STEP 3: SAVE MARKET-DERIVED MASTER FEATURES")
     print("=" * 60)
-    
-    df = add_trade_history_features(symbol="BTCUSDT", base_tf="15m")
-    if df is not None:
-        out_path = PROJECT_ROOT / "data" / "features" / "BTCUSDT" / "master_features_15m.parquet"
-        df.to_parquet(out_path, engine="pyarrow", index=False)
-        print(f"  [*] Saved final master features: {len(df)} rows")
-        print(f"  [*] Total columns ready for Phase 3: {len(df.columns)}")
+
+    features_dir = PROJECT_ROOT / "data" / "features" / "BTCUSDT"
+    source_path = features_dir / "liquidity_merged_15m.parquet"
+    if not source_path.exists():
+        raise FileNotFoundError(f"Liquidity features not found at {source_path}")
+
+    df = pd.read_parquet(source_path)
+    out_path = features_dir / "master_features_15m.parquet"
+    df.to_parquet(out_path, engine="pyarrow", index=False)
+    print(f"  [*] Saved final master features: {len(df)} rows")
+    print(f"  [*] Total columns ready for Phase 3: {len(df.columns)}")
 
 def main():
     parser = argparse.ArgumentParser(description="Phase 2: Efficient Feature Engineering Pipeline")
@@ -82,7 +87,7 @@ def main():
 
     step_multi_tf()
     step_liquidity()
-    step_trade_history()
+    step_master_features()
 
     print("\n" + "#" * 60)
     print("#  [*] PHASE 2 COMPLETE")

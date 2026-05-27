@@ -27,7 +27,7 @@ REGIME_FEATURES = [
     'bb_width_percentile'
 ]
 
-DEFAULT_N_CLUSTERS = 3
+DEFAULT_N_CLUSTERS = 4
 
 
 def auto_map_clusters(km, scaler, feature_names):
@@ -45,57 +45,46 @@ def auto_map_clusters(km, scaler, feature_names):
     centroids = scaler.inverse_transform(centroids_scaled)
     
     centroid_df = pd.DataFrame(centroids, columns=feature_names)
-    
-    mapping = {}
-    for cluster_id, row in centroid_df.iterrows():
-        ema_slope = float(row['ema_20_slope'])
-        vol_pct = float(row['volatility_percentile'])
 
-        if abs(ema_slope) < 0.05 and vol_pct < 0.4:
-            mapping[cluster_id] = 'ranging'
-        elif ema_slope > 0.05 and vol_pct >= 0.4:
-            mapping[cluster_id] = 'trending_up'
-        elif ema_slope < -0.05 and vol_pct >= 0.4:
-            mapping[cluster_id] = 'trending_down'
-        else:
-            mapping[cluster_id] = 'mixed'
-
-    # Ensure regime names remain unique if more than one cluster lands
-    # in the same semantic bucket. Keep the best-matching centroid on the
-    # base label and suffix lower-confidence duplicates.
-    def _confidence_score(cluster_id, name):
+    def _score(cluster_id, regime_name):
         row = centroid_df.loc[cluster_id]
         slope = float(row['ema_20_slope'])
         vol = float(row['volatility_percentile'])
-        if name == 'ranging':
-            return max(0.0, 0.4 - vol) + max(0.0, 0.05 - abs(slope))
-        if name == 'trending_up':
-            return max(0.0, slope - 0.05) + max(0.0, vol - 0.4)
-        if name == 'trending_down':
-            return max(0.0, -slope - 0.05) + max(0.0, vol - 0.4)
-        return 0.0
+        if regime_name == 'ranging':
+            threshold_bonus = 0.0
+            if abs(slope) < 0.05:
+                threshold_bonus += 2.0
+            if vol < 0.4:
+                threshold_bonus += 2.0
+            return threshold_bonus - abs(slope) - vol
+        if regime_name == 'trending_up':
+            threshold_bonus = 0.0
+            if slope > 0.05:
+                threshold_bonus += 2.0
+            if vol >= 0.4:
+                threshold_bonus += 2.0
+            return threshold_bonus + slope + vol
+        if regime_name == 'trending_down':
+            threshold_bonus = 0.0
+            if slope < -0.05:
+                threshold_bonus += 2.0
+            if vol >= 0.4:
+                threshold_bonus += 2.0
+            return threshold_bonus - slope + vol
+        # Mixed is the medium-volatility catch-all.
+        return -abs(vol - 0.5) - (0.25 * abs(slope))
 
-    by_name = {}
-    for cluster_id, name in mapping.items():
-        by_name.setdefault(name, []).append(cluster_id)
+    remaining = set(centroid_df.index.tolist())
+    mapping = {}
 
-    unique_mapping = {}
-    for name, cluster_ids in by_name.items():
-        if len(cluster_ids) == 1:
-            unique_mapping[cluster_ids[0]] = name
-            continue
+    for regime_name in ('ranging', 'trending_up', 'trending_down'):
+        best_cluster = max(remaining, key=lambda cid: (_score(cid, regime_name), -cid))
+        mapping[best_cluster] = regime_name
+        remaining.remove(best_cluster)
 
-        ranked = sorted(
-            cluster_ids,
-            key=lambda cid: (_confidence_score(cid, name), -cid),
-            reverse=True,
-        )
-        unique_mapping[ranked[0]] = name
-        for idx, cluster_id in enumerate(ranked[1:], start=1):
-            unique_mapping[cluster_id] = f"{name}_{idx}"
+    for cluster_id in sorted(remaining):
+        mapping[cluster_id] = 'mixed'
 
-    mapping = unique_mapping
-    
     return mapping, centroid_df
 
 

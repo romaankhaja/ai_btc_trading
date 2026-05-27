@@ -108,7 +108,7 @@ def fetch_funding_rates(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame
     df["open_time"] = pd.to_datetime(df["fundingTime"].astype(np.int64), unit="ms", utc=True)
     df["funding_rate"] = df["fundingRate"].astype(float)
     df = df[["open_time", "funding_rate"]].sort_values("open_time").reset_index(drop=True)
-    logger.info(f"  [Funding] Retrieved {len(df)} records ({df['open_time'].min()} → {df['open_time'].max()})")
+    logger.info(f"  [Funding] Retrieved {len(df)} records ({df['open_time'].min()} -> {df['open_time'].max()})")
     return df
 
 
@@ -150,7 +150,7 @@ def fetch_open_interest(symbol: str, period: str, start_ms: int, end_ms: int) ->
     df["open_time"] = pd.to_datetime(df["timestamp"].astype(np.int64), unit="ms", utc=True)
     df["open_interest_usd"] = df["sumOpenInterestValue"].astype(float)
     df = df[["open_time", "open_interest_usd"]].sort_values("open_time").reset_index(drop=True)
-    logger.info(f"  [OI] Retrieved {len(df)} records ({df['open_time'].min()} → {df['open_time'].max()})")
+    logger.info(f"  [OI] Retrieved {len(df)} records ({df['open_time'].min()} -> {df['open_time'].max()})")
     return df
 
 
@@ -195,7 +195,7 @@ def fetch_mark_price_klines(symbol: str, interval: str, start_ms: int, end_ms: i
     for col in ["mark_open", "mark_high", "mark_low", "mark_close"]:
         df[col] = df[col].astype(float)
     df = df[["open_time", "mark_open", "mark_high", "mark_low", "mark_close"]].sort_values("open_time").reset_index(drop=True)
-    logger.info(f"  [Mark] Retrieved {len(df)} records ({df['open_time'].min()} → {df['open_time'].max()})")
+    logger.info(f"  [Mark] Retrieved {len(df)} records ({df['open_time'].min()} -> {df['open_time'].max()})")
     return df
 
 
@@ -236,7 +236,7 @@ def fetch_long_short_ratio(symbol: str, period: str, start_ms: int, end_ms: int)
     df["open_time"] = pd.to_datetime(df["timestamp"].astype(np.int64), unit="ms", utc=True)
     df["long_short_ratio"] = df["longShortRatio"].astype(float)
     df = df[["open_time", "long_short_ratio"]].sort_values("open_time").reset_index(drop=True)
-    logger.info(f"  [L/S] Retrieved {len(df)} records ({df['open_time'].min()} → {df['open_time'].max()})")
+    logger.info(f"  [L/S] Retrieved {len(df)} records ({df['open_time'].min()} -> {df['open_time'].max()})")
     return df
 
 
@@ -357,7 +357,7 @@ def merge_derivatives_into_parquet(
 
     # Save enriched parquet
     result.to_parquet(parquet_path, engine="pyarrow", index=False)
-    logger.info(f"Saved enriched parquet ({len(result)} rows, {len(result.columns)} cols) → {parquet_path}")
+    logger.info(f"Saved enriched parquet ({len(result)} rows, {len(result.columns)} cols) -> {parquet_path}")
 
     # Print coverage summary
     _null_summary(result, ["funding_rate", "open_interest_usd", "mark_close", "long_short_ratio", "futures_basis"])

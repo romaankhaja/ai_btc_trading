@@ -81,7 +81,7 @@ def step_compute_indicators():
     for tf in ["5m", "15m", "1h"]:
         cleaned_path = PROJECT_ROOT / "data" / "cleaned" / "BTCUSDT" / f"{tf}.parquet"
         if not cleaned_path.exists():
-            print(f"  ⚠ {tf}.parquet not found — skipping indicator computation")
+            print(f"  [WARN] {tf}.parquet not found - skipping indicator computation")
             continue
 
         df = pd.read_parquet(cleaned_path)
@@ -143,11 +143,11 @@ def main():
     # Final summary
     print("\n" + "#" * 60)
     if gate_pass:
-        print("#  ✅ PHASE 1 COMPLETE — Gate condition met!")
+        print("#  [PASS] PHASE 1 COMPLETE - Gate condition met!")
         print("#  Next: Run with --with-indicators to compute features")
         print("#  Then proceed to Phase 2: Feature Engineering")
     else:
-        print("#  ❌ PHASE 1 INCOMPLETE — Gate condition NOT met")
+        print("#  [FAIL] PHASE 1 INCOMPLETE - Gate condition NOT met")
         print("#  Check missing candle percentages above")
         print("#  May need to download more data or investigate gaps")
     print("#" * 60)

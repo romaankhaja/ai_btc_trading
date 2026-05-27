@@ -29,11 +29,13 @@ def compute_kelly_sizing(
     meta_probability: float,
     predicted_volatility: float,
     atr_14: float,
+    sl_pct: float = None,
+    tp_pct: float = None,
     sl_multiplier: float = 1.5,
     tp_multiplier: float = 1.5,
     regime_risk_modifier: float = 1.0,
     regime_kelly_multiplier: float = 1.0,
-    max_risk_percent: float = 2.5,      # Absolute cap on position risk at 2.5% of equity
+    max_risk_percent: float = 1.0,      # Absolute cap on position risk at 1% of equity
     kelly_fraction: float = 0.5,       # Half-Kelly for safety
 ) -> SizingResult:
     """
@@ -41,9 +43,13 @@ def compute_kelly_sizing(
       f* = (p * (b + 1) - 1) / b
     where p = Platt-calibrated probability, b = TP_multiplier / SL_multiplier.
     """
-    # 1. Distances based on ATR
-    sl_dist = atr_14 * sl_multiplier
-    tp_dist = atr_14 * tp_multiplier
+    # 1. Use target-compatible percentage barriers for evaluation when provided.
+    if sl_pct is not None and tp_pct is not None:
+        sl_dist = entry_price * sl_pct
+        tp_dist = entry_price * tp_pct
+    else:
+        sl_dist = atr_14 * sl_multiplier
+        tp_dist = atr_14 * tp_multiplier
     
     # Prices
     if direction == 1:
@@ -72,22 +78,22 @@ def compute_kelly_sizing(
     
     # 3. Volatility Targeting Scalar
     # High predicted volatility reduces the raw Kelly fraction
-    vol_target_scalar = 0.01 / max(predicted_volatility, 0.001)
+    vol_target_scalar = min(2.0, max(0.5, 0.01 / max(predicted_volatility, 0.001)))
     
     # 4. Regime-based scalar modifiers
     raw_risk_pct = f_star * kelly_fraction * vol_target_scalar * regime_risk_modifier * 100.0
     raw_risk_pct *= regime_kelly_multiplier
         
     # 5. Final Risk Percent
-    # Hard cap risk at max_risk_percent (absolute limit 2.5%)
+    # Hard cap risk at max_risk_percent.
     risk_percent = min(raw_risk_pct, max_risk_percent)
     
     # 6. Position Size USD
     risk_amount = equity * (risk_percent / 100.0)
-    sl_pct = sl_dist / entry_price if entry_price > 0 else 0.01
+    stop_fraction = sl_dist / entry_price if entry_price > 0 else 0.01
     
-    if sl_pct > 0:
-        position_size_usd = risk_amount / sl_pct
+    if stop_fraction > 0:
+        position_size_usd = risk_amount / stop_fraction
     else:
         position_size_usd = 0.0
         

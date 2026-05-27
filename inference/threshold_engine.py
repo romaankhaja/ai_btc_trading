@@ -71,7 +71,6 @@ class AdaptiveThresholdEngine:
         self,
         regime_label: str,
         volatility_percentile: float = 0.5,
-        strategy_health_score: float = 1.0,
         regime_confidence: float = 0.5,
     ) -> ThresholdState:
         """
@@ -108,13 +107,6 @@ class AdaptiveThresholdEngine:
             adjusted = self._percentiles.get(higher_pct, adjusted)
             adjustments['vol_shift'] = pct_shift
         
-        # Low strategy health: tighten
-        if strategy_health_score < 0.5:
-            pct_shift = (0.5 - strategy_health_score) * 0.10
-            higher_pct = min(1.0, round(target_pct + pct_shift, 2))
-            adjusted = self._percentiles.get(higher_pct, adjusted)
-            adjustments['health_shift'] = pct_shift
-        
         return ThresholdState(
             base_threshold=base,
             adjusted_threshold=adjusted,
@@ -133,11 +125,10 @@ def fit_threshold_engine(train_momentum_probs: np.ndarray):
 def compute_adaptive_threshold(
     regime_label: str,
     volatility_percentile: float = 0.5,
-    strategy_health_score: float = 1.0,
     regime_confidence: float = 0.5,
 ) -> ThresholdState:
     """Compute threshold using the global engine."""
     return _global_engine.get_threshold(
         regime_label, volatility_percentile,
-        strategy_health_score, regime_confidence
+        regime_confidence
     )

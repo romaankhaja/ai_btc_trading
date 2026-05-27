@@ -19,7 +19,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from execution.paper_trader import PaperTrader
 from monitoring.drift_detector import DriftDetector
-from inference.threshold_engine import fit_threshold_engine
 from inference.model_ensemble import ModelEnsemble
 from training.config import MOMENTUM_FEATURES, VOLATILITY_FEATURES
 
@@ -95,10 +94,9 @@ def main():
         row = train_df.iloc[i]
         features = {col: float(row[col]) if isinstance(row[col], (int, float, np.integer, np.floating)) else row[col] for col in train_df.columns}
         out = ens.predict(features)
-        train_probs.append(out.momentum_probability)
+        train_probs.append(out.meta_probability)
     
     train_probs = np.array(train_probs)
-    fit_threshold_engine(train_probs)
     
     print(f"  Fitted on {len(train_probs)} training samples")
     print(f"  Probability range: [{train_probs.min():.3f}, {train_probs.max():.3f}]")
@@ -114,6 +112,7 @@ def main():
         initial_equity=10000.0
     )
     trader.load()
+    trader.engine.fit_thresholds(train_probs)
     
     print("  Running simulation on test set...")
     result = trader.run(test_df)
@@ -142,6 +141,11 @@ def main():
     sorted_blocks = sorted(result.block_reasons_summary.items(), key=lambda x: -x[1])
     for reason, count in sorted_blocks[:10]:
         print(f"    {reason:30s}: {count:,}")
+
+    print(f"\n  TOTAL PNL:")
+    total_pnl = sum(trade.pnl for trade in result.trades)
+    print(f"    Profit/Loss:      ${total_pnl:+.2f}")
+    print(f"    Ending Equity:    ${10000.0 + total_pnl:.2f}")
     
     # ---- Governance Validation ----
     print("\n" + "=" * 60)
